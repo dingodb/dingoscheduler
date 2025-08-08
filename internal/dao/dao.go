@@ -16,4 +16,4 @@ package dao
 
 import "github.com/google/wire"
 
-var DaoProvider = wire.NewSet(NewDingospeedDao, NewModelFileRecordDao)
+var DaoProvider = wire.NewSet(NewDingospeedDao, NewModelFileRecordDao, NewModelFileProcessDao, NewPreheatJobDao)

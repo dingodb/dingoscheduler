@@ -11,11 +11,17 @@ modelPkgName=model
 #表生成的genmodel目录
 outPath="./model"
 # 数据库配置
+#host="172.30.14.123"
+#port=3306
+#dbname=$1
+#username=dingo
+#passwd=6XY3i+*hW4^5K7a2d@
+
 host="172.30.14.123"
-port=3306
+port=3307
 dbname=$1
-username=dingo
-passwd=6XY3i+*hW4^5K7a2d@
+username=root
+passwd=123123
 
 
 echo "开始创建库：$dbname 的表：$2"

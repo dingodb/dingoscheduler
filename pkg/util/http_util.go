@@ -16,9 +16,10 @@ package util
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"strings"
 	"time"
 
 	"dingoscheduler/pkg/common"
@@ -30,6 +31,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
+
+var reqTimeout = 10 * time.Second
 
 func RetryRequest(f func() (*common.Response, error)) (*common.Response, error) {
 	var resp *common.Response
@@ -46,24 +49,52 @@ func RetryRequest(f func() (*common.Response, error)) (*common.Response, error) 
 	return resp, err
 }
 
-// Head 方法用于发送带请求头的 HEAD 请求
-func Head(url string, headers map[string]string, timeout time.Duration) (*common.Response, error) {
-	req, err := http.NewRequest("HEAD", url, nil)
+func NewHTTPClient(timeout time.Duration) (*http.Client, error) {
+	client := &http.Client{Timeout: timeout}
+	return client, nil
+}
+
+func constructClient(timeout time.Duration) (string, *http.Client, error) {
+	var (
+		domain string
+		client *http.Client
+		err    error
+	)
+	client, err = NewHTTPClient(timeout)
+	return domain, client, err
+}
+
+func Head(requestUri string, headers map[string]string, timeout time.Duration) (*common.Response, error) {
+	domain, client, err := constructClient(timeout)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("construct http client err: %v", err)
+	}
+	requestURL := fmt.Sprintf("%s%s", domain, requestUri)
+	return doHead(client, requestURL, headers)
+}
+
+func doHead(client *http.Client, targetURL string, headers map[string]string) (*common.Response, error) {
+	req, err := http.NewRequest("HEAD", targetURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建HEAD请求失败: %v", err)
 	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{}
-	client.Timeout = timeout
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		zap.S().Warnf("URL请求失败: %s, 错误: %v", targetURL, err)
+		return nil, fmt.Errorf("执行HEAD请求失败: %v", err)
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			zap.S().Errorf("关闭响应体资源时出现异常: %v", r)
+		}
+		resp.Body.Close()
+	}()
 	respHeaders := make(map[string]interface{})
-	for key, value := range resp.Header {
-		respHeaders[key] = value
+	for key, values := range resp.Header {
+		respHeaders[key] = values
 	}
 	return &common.Response{
 		StatusCode: resp.StatusCode,
@@ -71,30 +102,55 @@ func Head(url string, headers map[string]string, timeout time.Duration) (*common
 	}, nil
 }
 
-// Get 方法用于发送带请求头的 GET 请求
-func Get(url string, headers map[string]string, timeout time.Duration) (*common.Response, error) {
-	req, err := http.NewRequest("GET", url, nil)
+func GetForDomain(domain, requestUri string, headers map[string]string) (*common.Response, error) {
+	_, client, err := constructClient(reqTimeout)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("construct http client err: %v", err)
+	}
+	requestURL := fmt.Sprintf("%s%s", domain, requestUri)
+	return doGet(client, requestURL, headers)
+}
+
+func Get(requestUri string, headers map[string]string, timeout time.Duration) (*common.Response, error) {
+	domain, client, err := constructClient(timeout)
+	if err != nil {
+		return nil, fmt.Errorf("construct http client err: %v", err)
+	}
+	requestURL := fmt.Sprintf("%s%s", domain, requestUri)
+	return doGet(client, requestURL, headers)
+}
+
+func doGet(client *http.Client, targetURL string, headers map[string]string) (*common.Response, error) {
+	req, err := http.NewRequest("GET", targetURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建GET请求失败: %v", err)
 	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{}
-	client.Timeout = timeout
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		zap.S().Warnf("URL请求失败: %s, 错误: %v", targetURL, err)
+		return nil, fmt.Errorf("执行GET请求失败: %v", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() {
+		if r := recover(); r != nil {
+			zap.S().Errorf("关闭响应体资源时出现异常: %v", r)
+		}
+		resp.Body.Close()
+	}()
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("读取响应体失败: %v", err)
 	}
+
 	respHeaders := make(map[string]interface{})
-	for key, value := range resp.Header {
-		respHeaders[key] = value
+	for key, values := range resp.Header {
+		respHeaders[key] = values
 	}
+
 	return &common.Response{
 		StatusCode: resp.StatusCode,
 		Headers:    respHeaders,
@@ -102,12 +158,28 @@ func Get(url string, headers map[string]string, timeout time.Duration) (*common.
 	}, nil
 }
 
-func GetStream(url string, headers map[string]string, timeout time.Duration, f func(r *http.Response)) error {
-	client := &http.Client{}
-	client.Timeout = timeout
-	req, err := http.NewRequest("GET", url, nil)
+func GetStream(domain, uri string, headers map[string]string, timeout time.Duration, f func(r *http.Response) error) error {
+	var (
+		client *http.Client
+		err    error
+	)
+	if IsInnerDomain(domain) {
+		client, err = NewHTTPClient(timeout)
+	} else {
+		domain, client, err = constructClient(timeout)
+	}
 	if err != nil {
-		return err
+		return fmt.Errorf("construct http client err: %v", err)
+	}
+	requestURL := fmt.Sprintf("%s%s", domain, uri)
+	return doGetStream(client, requestURL, headers, timeout, f)
+}
+
+func doGetStream(client *http.Client, targetURL string, headers map[string]string, timeout time.Duration, f func(r *http.Response) error) error {
+	escapedURL := strings.ReplaceAll(targetURL, "#", "%23")
+	req, err := http.NewRequest("GET", escapedURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建GET请求失败: %v", err)
 	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
@@ -121,34 +193,61 @@ func GetStream(url string, headers map[string]string, timeout time.Duration, f f
 	for key, value := range resp.Header {
 		respHeaders[key] = value
 	}
-	f(resp)
-	return nil
+	return f(resp)
 }
 
-// Post 方法用于发送带请求头的 POST 请求
-func Post(url string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
+func PostForDomain(domain, requestUri string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
+	_, client, err := constructClient(reqTimeout)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("construct http client err: %v", err)
 	}
+	requestURL := fmt.Sprintf("%s%s", domain, requestUri)
+	return doPost(client, requestURL, contentType, data, headers)
+}
+
+func Post(requestUri string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
+	domain, client, err := constructClient(reqTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("construct http client err: %v", err)
+	}
+	requestURL := fmt.Sprintf("%s%s", domain, requestUri)
+	return doPost(client, requestURL, contentType, data, headers)
+}
+
+func doPost(client *http.Client, targetURL string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
+	req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("创建POST请求失败: %v", err)
+	}
+
 	req.Header.Set("Content-Type", contentType)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		zap.S().Warnf("URL请求失败: %s, 错误: %v", targetURL, err)
+		return nil, fmt.Errorf("执行POST请求失败: %v", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() {
+		if r := recover(); r != nil {
+			zap.S().Errorf("关闭响应体资源时出现异常: %v", r)
+		}
+		resp.Body.Close()
+	}()
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("读取响应体失败: %v", err)
 	}
+
 	respHeaders := make(map[string]interface{})
-	for key, value := range resp.Header {
-		respHeaders[key] = value
+	for key, values := range resp.Header {
+		respHeaders[key] = values
 	}
+
 	return &common.Response{
 		StatusCode: resp.StatusCode,
 		Headers:    respHeaders,
@@ -172,7 +271,7 @@ func ResponseStream(c echo.Context, fileName string, headers map[string]string, 
 		select {
 		case b, ok := <-content:
 			if !ok {
-				zap.S().Infof("ResponseStream complete, %s.", fileName)
+				zap.S().Infof("ResponseStream complete, %s", fileName)
 				return nil
 			}
 			if len(b) > 0 {
@@ -192,10 +291,47 @@ func ResponseStream(c echo.Context, fileName string, headers map[string]string, 
 	}
 }
 
-func GetDomain(hfURL string) (string, error) {
-	parsedURL, err := url.Parse(hfURL)
+func ForwardRequest(originalReq *http.Request, timeout time.Duration) (*common.Response, error) {
+	domain, client, err := constructClient(timeout)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("construct http client err: %v", err)
 	}
-	return parsedURL.Host, nil
+	targetURL := fmt.Sprintf("%s%s", domain, originalReq.URL.Path)
+	proxyReq, err := http.NewRequest(originalReq.Method, targetURL, originalReq.Body)
+	if err != nil {
+		return nil, fmt.Errorf("创建转发请求失败: %v", err)
+	}
+	for key, values := range originalReq.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		zap.S().Warnf("转发请求失败: %s, 错误: %v", targetURL, err)
+		return nil, fmt.Errorf("执行转发请求失败: %v", err)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			zap.S().Errorf("关闭响应体资源时出现异常: %v", r)
+		}
+		resp.Body.Close()
+	}()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应体失败: %v", err)
+	}
+	respHeaders := make(map[string]interface{})
+	for key, values := range resp.Header {
+		respHeaders[key] = values
+	}
+	return &common.Response{
+		StatusCode: resp.StatusCode,
+		Headers:    respHeaders,
+		Body:       body,
+	}, nil
+}
+
+func IsInnerDomain(url string) bool {
+	return !strings.Contains(url, consts.Huggingface) && !strings.Contains(url, consts.Hfmirror)
 }

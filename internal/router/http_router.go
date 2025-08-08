@@ -23,16 +23,16 @@ import (
 )
 
 type HttpRouter struct {
-	echo       *echo.Echo
-	sysHandler *handler.SysHandler
-	manHandler *handler.ManagerHandler
+	echo           *echo.Echo
+	sysHandler     *handler.SysHandler
+	managerHandler *handler.ManagerHandler
 }
 
-func NewHttpRouter(echo *echo.Echo, manHandler *handler.ManagerHandler, sysHandler *handler.SysHandler) *HttpRouter {
+func NewHttpRouter(echo *echo.Echo, managerHandler *handler.ManagerHandler, sysHandler *handler.SysHandler) *HttpRouter {
 	r := &HttpRouter{
-		echo:       echo,
-		sysHandler: sysHandler,
-		manHandler: manHandler,
+		echo:           echo,
+		sysHandler:     sysHandler,
+		managerHandler: managerHandler,
 	}
 	r.initRouter()
 	return r
@@ -48,5 +48,5 @@ func (r *HttpRouter) initRouter() {
 	if config.SysConfig.EnableMetric() {
 		r.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
-
+	r.echo.POST("/api/preheat", r.managerHandler.PreheatHandler)
 }

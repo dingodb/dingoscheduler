@@ -1,10 +1,14 @@
 server:
     mode: debug
     host: 0.0.0.0
-    port: 9090
+    port: 9091
     pprof: true
     pprofPort: 7060
     metrics: true
+    ssl:
+        keyFile: config/ssl/server.key
+        crtFile: config/ssl/server.crt
+        caFile: config/ssl/ca.crt
 
 bizDB:
     type: "mysql"
@@ -17,8 +21,19 @@ bizDB:
     maxConn: 100
     maxIdleConn: 10
 
+#bizDB:
+#    type: "mysql"
+#    host: "172.30.14.123"
+#    port: 3307
+#    user: root
+#    password: 123123
+#    database: dingo
+#    timeout: "10s"
+#    maxConn: 100
+#    maxIdleConn: 10
+
 scheduler:
-    port: 9091
+    port: 19091
 
 retry:
     delay: 1       #重试间隔时间，单位秒，默认为1

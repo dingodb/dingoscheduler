@@ -8,22 +8,25 @@ import (
 	"time"
 )
 
-const TableNameModelFileRecord = "model_file_record"
+const TableNamePreheatJob = "preheat_job"
 
-// ModelFileRecord mapped from table <model_file_record>
-type ModelFileRecord struct {
+// PreheatJob mapped from table <preheat_job>
+type PreheatJob struct {
 	ID        int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	Area      string    `gorm:"column:area;not null" json:"area"`
 	Datatype  string    `gorm:"column:datatype;not null" json:"datatype"`
 	Org       string    `gorm:"column:org;not null" json:"org"`
 	Repo      string    `gorm:"column:repo;not null" json:"repo"`
-	Name      string    `gorm:"column:name;not null" json:"name"`
-	Etag      string    `gorm:"column:etag;not null" json:"etag"`
-	FileSize  int64     `gorm:"column:file_size;not null" json:"file_size"`
+	Revision  string    `gorm:"column:revision;not null" json:"revision"`
+	FileTotal int     `gorm:"column:file_total;not null" json:"file_total"`
+	Status    int32     `gorm:"column:status;not null" json:"status"`
+	MetaInfo  string    `gorm:"column:meta_info;not null" json:"meta_info"`
+	Token  string    `gorm:"column:token;not null" json:"token"`
 	CreatedAt time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
 }
 
-// TableName ModelFileRecord's table name
-func (*ModelFileRecord) TableName() string {
-	return TableNameModelFileRecord
+// TableName PreheatJob's table name
+func (*PreheatJob) TableName() string {
+	return TableNamePreheatJob
 }

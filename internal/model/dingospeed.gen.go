@@ -12,12 +12,13 @@ const TableNameDingospeed = "dingospeed"
 
 // Dingospeed mapped from table <dingospeed>
 type Dingospeed struct {
-	ID        int32     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	Area      string    `gorm:"column:area;not null" json:"area"`
-	Host      string    `gorm:"column:host;not null" json:"host"`
-	Port      int32     `gorm:"column:port;not null" json:"port"`
-	CreatedAt time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
+	ID         int32     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	InstanceID string    `gorm:"column:instance_id;not null" json:"instance_id"`
+	Host       string    `gorm:"column:host;not null" json:"host"`
+	Port       int32     `gorm:"column:port;not null" json:"port"`
+	CreatedAt  time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
+	UpdatedAt  time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
+	Online     bool      `gorm:"column:online;not null;comment:是否在线" json:"online"` // 是否在线
 }
 
 // TableName Dingospeed's table name
