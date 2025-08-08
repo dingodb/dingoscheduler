@@ -23,8 +23,6 @@ import (
 // Task 定义任务类型
 type Task interface {
 	DoTask()
-	OutResult()
-	GetResponseChan() chan []byte
 }
 
 // Pool 协程池结构体

@@ -14,11 +14,6 @@
 
 package consts
 
-const (
-	// 支持的数据库
-	DB_MYSQL = "mysql"
-)
-
 var RepoTypesMapping = map[string]RepoType{
 	"models":   RepoTypeModel,
 	"spaces":   RepoTypeSpace,
@@ -34,17 +29,40 @@ const (
 	RepoTypeDataset          = RepoType("datasets")
 )
 
-func (a RepoType) Value() string {
-	return string(a)
-}
+const (
+	// 支持的数据库
+	DB_MYSQL = "mysql"
+)
 
-const HUGGINGFACE_HEADER_X_REPO_COMMIT = "X-Repo-Commit"
+const (
+	SchedulerNo  = 1
+	SchedulerYes = 2
+)
+
+const PromSource = "source"
+const PromOrgRepo = "orgRepo"
+
+const (
+	Huggingface        = "huggingface"
+	Hfmirror           = "hf-mirror"
+	RequestSourceInner = "inner"
+)
+
+const (
+	StatusDownloading   = 1
+	StatusDownloadBreak = 2
+	StatusDownloaded    = 3
+)
+
+const (
+	StatusPreheatCommit   = 0
+	StatusPreheating      = 1
+	StatusPreheatBreak    = 2
+	StatusPreheatCancel   = 3
+	StatusPreheatComplete = 4
+)
 
 const (
 	RequestTypeHead = "head"
 	RequestTypeGet  = "get"
 )
-
-const RespChanSize = 100
-const PromSource = "source"
-const PromOrgRepo = "orgRepo"

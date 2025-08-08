@@ -23,6 +23,7 @@ func NewMysqlClient(config *config.DBConfig) (*gorm.DB, error) {
 	// 拼接下dsn参数
 	// dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8&parseTime=True&loc=Local&timeout=%s",
 	// 	username, password, host, port, database, timeout)
+
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8&parseTime=True&loc=Asia%%2FShanghai&timeout=%s",
 		username, password, host, port, database, timeout)
 	// 连接MYSQL, 获得DB类型实例，用于后面的数据库读写操作。

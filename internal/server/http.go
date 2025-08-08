@@ -11,7 +11,6 @@ import (
 
 	"dingoscheduler/internal/router"
 	"dingoscheduler/pkg/config"
-	"dingoscheduler/pkg/middleware"
 
 	"github.com/labstack/echo/v4"
 )
@@ -62,7 +61,5 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 
 func NewEngine() *echo.Echo {
 	r := echo.New()
-	middleware.InitMiddlewareConfig()
-	r.Use(middleware.QueueLimitMiddleware)
 	return r
 }
