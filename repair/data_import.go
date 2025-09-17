@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"dingoscheduler/internal/dao"
@@ -61,20 +63,25 @@ func init() {
 }
 
 func main() {
-	// 读取并处理目标目录下的文件（仅处理本次扫描到的）
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		fmt.Printf("初始化zap日志失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+	zap.ReplaceGlobals(logger)
+
 	fileInfos, err := processDirectory(repoPathParam)
 	if err != nil {
 		zap.S().Fatalf("处理目录失败: %v", err)
 	}
 
-	// 检查是否有符合条件的文件
 	if len(fileInfos) == 0 {
 		zap.S().Warn("未找到任何符合条件的文件进行处理")
 		return
 	}
 	zap.S().Infof("本次从路径 %s 读取到 %d 个符合条件的文件", repoPathParam, len(fileInfos))
 
-	// 过滤小于阈值的文件（仍属于本次读取到的范围）
 	filteredFileInfos := make([]FileInfo, 0)
 	for _, fileInfo := range fileInfos {
 		if fileInfo.FileSize >= minFileSize {
@@ -86,14 +93,13 @@ func main() {
 	}
 
 	zap.S().Infof("过滤后，本次需处理的文件剩余 %d 个（大于等于 %d MB）",
-		len(filteredFileInfos), minFileSize/(024*024))
+		len(filteredFileInfos), minFileSize/(1024*1024))
 
 	if len(filteredFileInfos) == 0 {
 		zap.S().Warn("所有文件都小于指定的大小阈值，没有文件将被处理")
 		return
 	}
 
-	// 生成本次读取到的所有候选记录
 	allCandidateRecords := make([]model.ModelFileRecord, 0, len(filteredFileInfos))
 	for _, item := range filteredFileInfos {
 		m := model.ModelFileRecord{
@@ -107,7 +113,6 @@ func main() {
 		allCandidateRecords = append(allCandidateRecords, m)
 	}
 
-	// 初始化数据库连接
 	conf, err := config.Scan(configPath)
 	if err != nil {
 		zap.S().Fatalf("读取配置文件失败: %v", err)
@@ -117,16 +122,13 @@ func main() {
 		zap.S().Fatalf("初始化基础数据失败: %v", err)
 	}
 
-	// 初始化ModelFileRecord的DAO
 	modelFileRecordDao := dao.NewModelFileRecordDao(baseData)
 
-	// 收集本次候选记录的所有Etag
 	allCandidateEtags := make([]string, 0, len(allCandidateRecords))
 	for _, r := range allCandidateRecords {
 		allCandidateEtags = append(allCandidateEtags, r.Etag)
 	}
 
-	// 步骤：查询数据库中已存在的Etag
 	existingEtags, err := modelFileRecordDao.ExistEtags(allCandidateEtags)
 	if err != nil {
 		zap.S().Fatalf("查询已存在的Etag失败: %v", err)
@@ -136,9 +138,8 @@ func main() {
 		existingEtagMap[etag] = struct{}{}
 	}
 
-	// 步骤2：拆分本次候选记录为“新记录”和“已存在记录的Etag”
-	newRecords := make([]model.ModelFileRecord, 0) // 本次需新增到ModelFileRecord的记录
-	existingCandidateEtags := make([]string, 0)    // 本次读取到但已存在于数据库的Etag
+	newRecords := make([]model.ModelFileRecord, 0)
+	existingCandidateEtags := make([]string, 0)
 	for _, r := range allCandidateRecords {
 		if _, exists := existingEtagMap[r.Etag]; !exists {
 			newRecords = append(newRecords, r)
@@ -148,18 +149,62 @@ func main() {
 		}
 	}
 
-	// 步骤3：保存新记录到ModelFileRecord
 	if len(newRecords) > 0 {
-		if err := modelFileRecordDao.BatchSave(newRecords); err != nil {
-			zap.S().Fatalf("批量保存ModelFileRecord失败: %v", err)
+		recordFile, err := os.OpenFile(
+			"model_file_record.csv",
+			os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+			0644,
+		)
+		if err != nil {
+			zap.S().Fatalf("创建ModelFileRecord CSV文件失败: %v", err)
 		}
-		zap.S().Infof("成功向ModelFileRecord添加 %d 条新记录（本次读取到的新记录）", len(newRecords))
+		defer func() {
+			recordFile.Close()
+			zap.S().Debugf("ModelFileRecord CSV文件句柄已关闭")
+		}()
+
+		// 初始化CSV写入器（设置逗号分隔、CRLF换行，兼容多系统）
+		recordWriter := csv.NewWriter(recordFile)
+		recordWriter.Comma = ','
+		recordWriter.UseCRLF = true
+		defer func() {
+			recordWriter.Flush() // 确保缓存数据写入文件
+			if err := recordWriter.Error(); err != nil {
+				zap.S().Errorf("刷新ModelFileRecord CSV缓存失败: %v", err)
+			}
+		}()
+
+		recordHeader := []string{"datatype", "org", "repo", "name", "etag", "file_size"}
+		if err := recordWriter.Write(recordHeader); err != nil {
+			zap.S().Fatalf("写入ModelFileRecord CSV表头失败: %v", err)
+		}
+
+		for _, record := range newRecords {
+			dataRow := []string{
+				record.Datatype,
+				record.Org,
+				record.Repo,
+				record.Name,
+				record.Etag,
+				strconv.FormatInt(record.FileSize, 10), // int64转字符串
+			}
+			if err := recordWriter.Write(dataRow); err != nil {
+				zap.S().Fatalf("写入ModelFileRecord数据失败（Etag: %s）: %v", record.Etag, err)
+			}
+		}
+
+		zap.S().Infof("成功生成ModelFileRecord CSV文件，包含 %d 条新记录: model_file_record.csv", len(newRecords))
+		zap.S().Infof("=== MySQL导入命令参考 ===")
+		zap.S().Infof("LOAD DATA INFILE '/path/to/model_file_record.csv'")
+		zap.S().Infof("INTO TABLE model_file_record")
+		zap.S().Infof("FIELDS TERMINATED BY ',' ENCLOSED BY '\"' ESCAPED BY '\\\\'")
+		zap.S().Infof("LINES TERMINATED BY '\\r\\n'")
+		zap.S().Infof("IGNORE 1 ROWS (datatype, org, repo, name, etag, file_size);")
+		zap.S().Infof("==========================")
 	} else {
-		zap.S().Info("本次读取到的记录均已存在于ModelFileRecord，无需新增")
+		zap.S().Info("本次读取到的记录均已存在于ModelFileRecord，无需生成CSV文件")
 	}
 
-	// 步骤4：收集本次读取到的所有RecordID
-	// 4. 本次新增记录的ID（newRecordIDs）
 	newRecordIDs := make([]int64, 0, len(newRecords))
 	for _, r := range newRecords {
 		if r.ID != 0 {
@@ -169,10 +214,8 @@ func main() {
 		}
 	}
 
-	// 4.2 本次读取到的已存在记录的ID（existingRecordIDs）
 	existingRecordIDs := make([]int64, 0)
 	if len(existingCandidateEtags) > 0 {
-		// 仅查询本次读取到的已存在Etag对应的ID（确保是本次扫描到的）
 		existingRecordIDs, err = modelFileRecordDao.GetIDsByEtags(existingCandidateEtags)
 		if err != nil {
 			zap.S().Fatalf("根据Etag查询已存在记录的ID失败: %v", err)
@@ -180,7 +223,6 @@ func main() {
 		zap.S().Infof("本次读取到的已存在记录中，共查询到 %d 个有效ID", len(existingRecordIDs))
 	}
 
-	// 4.3 合并本次读取到的所有RecordID（仅这部分会生成ModelFileProcess）
 	allNeedProcessRecordIDs := append(newRecordIDs, existingRecordIDs...)
 	if len(allNeedProcessRecordIDs) == 0 {
 		zap.S().Info("本次读取到的记录中，没有有效RecordID，无需生成ModelFileProcess记录")
@@ -189,18 +231,14 @@ func main() {
 	zap.S().Infof("本次需为 %d 个RecordID生成ModelFileProcess记录（新记录: %d, 已存在记录: %d）",
 		len(allNeedProcessRecordIDs), len(newRecordIDs), len(existingRecordIDs))
 
-	// 步骤5：生成待保存的ModelFileProcess记录（仅基于本次读取到的RecordID）
 	modelFileProcessDao := dao.NewModelFileProcessDao(baseData)
-
-	// 构建RecordID到完整信息的映射（用于查询offset）
 	recordInfoMap := make(map[int64]model.ModelFileRecord)
-	// 新记录的信息
 	for _, r := range newRecords {
 		if r.ID != 0 {
 			recordInfoMap[r.ID] = r
 		}
 	}
-	// 已存在记录的信息（从数据库查询，确保信息完整）
+
 	if len(existingRecordIDs) > 0 {
 		existingRecords, err := modelFileRecordDao.GetByIDs(existingRecordIDs)
 		if err != nil {
@@ -211,7 +249,6 @@ func main() {
 		}
 	}
 
-	// 生成Process记录
 	processRecords := make([]model.ModelFileProcess, 0, len(allNeedProcessRecordIDs))
 	for _, recordID := range allNeedProcessRecordIDs {
 		record, exists := recordInfoMap[recordID]
@@ -220,7 +257,6 @@ func main() {
 			continue
 		}
 
-		// 调用API获取offset值
 		offset, err := getOffsetValue(record.Datatype, record.Org, record.Repo, record.Etag, record.FileSize)
 		if err != nil {
 			zap.S().Warnf("RecordID %d 获取offset失败: %v，使用默认值0", recordID, err)
@@ -231,12 +267,10 @@ func main() {
 			RecordID:   recordID,
 			InstanceID: instanceID,
 			OffsetNum:  offset,
-			Status:     3, // 固定状态：下载完成
+			Status:     3,
 		})
 	}
 
-	// 步骤6：对ModelFileProcess记录去重（仅检查本次处理的RecordID）
-	// 查询当前InstanceID下，本次处理的RecordID中哪些已存在Process记录
 	existingProcessRecordIDs, err := modelFileProcessDao.ExistRecordIDs(instanceID, allNeedProcessRecordIDs)
 	if err != nil {
 		zap.S().Fatalf("查询已存在的ModelFileProcess记录失败: %v", err)
@@ -246,7 +280,6 @@ func main() {
 		existingProcessRecordIDMap[id] = struct{}{}
 	}
 
-	// 过滤重复记录（仅保留本次处理范围内且未存在的）
 	newProcessRecords := make([]model.ModelFileProcess, 0, len(processRecords))
 	for _, p := range processRecords {
 		if _, exists := existingProcessRecordIDMap[p.RecordID]; !exists {
@@ -256,17 +289,62 @@ func main() {
 		}
 	}
 
-	// 步骤7：保存新的ModelFileProcess记录（仅本次新增的）
 	if len(newProcessRecords) > 0 {
-		if err := modelFileProcessDao.BatchSave(newProcessRecords); err != nil {
-			zap.S().Fatalf("批量保存ModelFileProcess失败: %v", err)
+		processFile, err := os.OpenFile(
+			"model_file_process.csv",
+			os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+			0644,
+		)
+		if err != nil {
+			zap.S().Fatalf("创建ModelFileProcess CSV文件失败: %v", err)
 		}
-		zap.S().Infof("成功向ModelFileProcess添加 %d 条新记录（基于本次读取到的文件）", len(newProcessRecords))
+		defer func() {
+			processFile.Close()
+			zap.S().Debugf("ModelFileProcess CSV文件句柄已关闭")
+		}()
+
+		processWriter := csv.NewWriter(processFile)
+		processWriter.Comma = ','
+		processWriter.UseCRLF = true
+		defer func() {
+			processWriter.Flush()
+			if err := processWriter.Error(); err != nil {
+				zap.S().Errorf("刷新ModelFileProcess CSV缓存失败: %v", err)
+			}
+		}()
+
+		processHeader := []string{"record_id", "instance_id", "offset_num", "status"}
+		if err := processWriter.Write(processHeader); err != nil {
+			zap.S().Fatalf("写入ModelFileProcess CSV表头失败: %v", err)
+		}
+
+		// 写入数据行
+		for _, process := range newProcessRecords {
+			dataRow := []string{
+				strconv.FormatInt(process.RecordID, 10),
+				process.InstanceID,
+				strconv.FormatInt(process.OffsetNum, 10),
+				strconv.Itoa(int(process.Status)),
+			}
+			if err := processWriter.Write(dataRow); err != nil {
+				zap.S().Fatalf("写入ModelFileProcess数据失败（RecordID: %d）: %v", process.RecordID, err)
+			}
+		}
+
+		zap.S().Infof("成功生成ModelFileProcess CSV文件，包含 %d 条新记录: model_file_process.csv", len(newProcessRecords))
+		// 输出MySQL导入命令
+		zap.S().Infof("=== MySQL导入命令参考 ===")
+		zap.S().Infof("LOAD DATA INFILE '/path/to/model_file_process.csv'")
+		zap.S().Infof("INTO TABLE model_file_process")
+		zap.S().Infof("FIELDS TERMINATED BY ',' ENCLOSED BY '\"' ESCAPED BY '\\\\'")
+		zap.S().Infof("LINES TERMINATED BY '\\r\\n'")
+		zap.S().Infof("IGNORE 1 ROWS (record_id, instance_id, offset_num, status);")
+		zap.S().Infof("==========================")
 	} else {
-		zap.S().Info("本次读取到的RecordID中，对应的ModelFileProcess记录均已存在，无需新增")
+		zap.S().Info("本次读取到的RecordID中，对应的ModelFileProcess记录均已存在，无需生成CSV文件")
 	}
 
-	zap.S().Infof("程序执行完成，本次共处理 %d 个文件，最终新增 %d 条ModelFileProcess记录",
+	zap.S().Infof("程序执行完成，本次共处理 %d 个文件，最终生成 %d 条ModelFileProcess CSV记录",
 		len(filteredFileInfos), len(newProcessRecords))
 }
 

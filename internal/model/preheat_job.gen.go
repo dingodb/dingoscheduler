@@ -12,9 +12,9 @@ const TableNamePreheatJob = "preheat_job"
 
 // PreheatJob mapped from table <preheat_job>
 type PreheatJob struct {
-	ID        int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	Area      string    `gorm:"column:area;not null" json:"area"`
-	Datatype  string    `gorm:"column:datatype;not null" json:"datatype"`
+	ID         int64  `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	InstanceId string `gorm:"column:instance_id;not null" json:"instance_id"`
+	Datatype   string `gorm:"column:datatype;not null" json:"datatype"`
 	Org       string    `gorm:"column:org;not null" json:"org"`
 	Repo      string    `gorm:"column:repo;not null" json:"repo"`
 	Revision  string    `gorm:"column:revision;not null" json:"revision"`

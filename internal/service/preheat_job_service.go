@@ -52,7 +52,7 @@ func NewPreheatJobService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao 
 }
 
 func (s *PreheatJobService) Preheat(c echo.Context, job *query.PreheatJobQuery) error {
-	zap.S().Debugf("Preheat:%s, %s/%s/%s/%s", job.Area, job.Datatype, job.Org, job.Repo)
+	zap.S().Debugf("Preheat:%s, %s/%s/%s/%s", job.InstanceId, job.Datatype, job.Org, job.Repo)
 	preheatJob, err := s.preheatJobDao.GetPreheatJob(job)
 	if err != nil {
 		return err
@@ -60,7 +60,7 @@ func (s *PreheatJobService) Preheat(c echo.Context, job *query.PreheatJobQuery) 
 	if preheatJob != nil {
 		return myerr.New("已存在该任务，不能再创建。")
 	}
-	entity, err := s.dingospeedDao.GetEntity(job.Area, true)
+	entity, err := s.dingospeedDao.GetEntity(job.InstanceId, true)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (s *PreheatJobService) Preheat(c echo.Context, job *query.PreheatJobQuery) 
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 	orgRepo := util.GetOrgRepo(job.Org, job.Repo)
-	resp, err := s.preheatJobDao.RemoteRequestMeta(speedDomain, job.Datatype, orgRepo, "main", job.Token)
+	resp, err := s.dingospeedDao.RemoteRequestMeta(speedDomain, job.Datatype, orgRepo, "main", job.Token)
 	if err != nil {
 		return err
 	}
@@ -82,15 +82,15 @@ func (s *PreheatJobService) Preheat(c echo.Context, job *query.PreheatJobQuery) 
 		return err
 	}
 	jobModel := model.PreheatJob{
-		Area:      job.Area,
-		Datatype:  job.Datatype,
-		Org:       job.Org,
-		Repo:      job.Repo,
-		Token:     job.Token,
-		Revision:  sha.Sha,
-		FileTotal: len(sha.Siblings),
-		MetaInfo:  string(resp.Body),
-		Status:    consts.StatusPreheatCommit,
+		InstanceId: job.InstanceId,
+		Datatype:   job.Datatype,
+		Org:        job.Org,
+		Repo:       job.Repo,
+		Token:      job.Token,
+		Revision:   sha.Sha,
+		FileTotal:  len(sha.Siblings),
+		MetaInfo:   string(resp.Body),
+		Status:     consts.StatusPreheatCommit,
 	}
 	if err = s.Pool.Submit(context.Background(), &PreheatTask{
 		preheatJobDao:       s.preheatJobDao,
@@ -141,7 +141,7 @@ func (p *PreheatTask) DoTask() {
 			etag = pathInfo.Oid
 		}
 		// 判断文件是否下载
-		processes, err := p.modelFileProcessDao.GetModelFileProcessByCondition(p.Job.Datatype, p.Job.Org, p.Job.Repo, fileName.Rfilename, etag, p.Job.Area)
+		processes, err := p.modelFileProcessDao.GetModelFileProcessByCondition(p.Job.Datatype, p.Job.Org, p.Job.Repo, fileName.Rfilename, etag, p.Job.InstanceId)
 		if err != nil {
 			return
 		}

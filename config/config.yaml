@@ -5,6 +5,8 @@ server:
     pprof: true
     pprofPort: 7060
     metrics: true
+    hfNetLoc: hf-mirror.com   # huggingface.co
+    hfScheme: https
     ssl:
         keyFile: config/ssl/server.key
         crtFile: config/ssl/server.crt
@@ -13,24 +15,13 @@ server:
 bizDB:
     type: "mysql"
     host: "172.30.14.123"
-    port: 3306
-    user: "dingo"
-    password: "6XY3i+*hW4^5K7a2d@"
-    database: "dingoscheduler"
+    port: 3307
+    user: root
+    password: 123123
+    database: dingo
     timeout: "10s"
     maxConn: 100
     maxIdleConn: 10
-
-#bizDB:
-#    type: "mysql"
-#    host: "172.30.14.123"
-#    port: 3307
-#    user: root
-#    password: 123123
-#    database: dingo
-#    timeout: "10s"
-#    maxConn: 100
-#    maxIdleConn: 10
 
 scheduler:
     port: 19091
@@ -43,3 +34,37 @@ log:
     maxSize: 20      # 日志文件最大的尺寸（MB）
     maxBackups: 10  #保留旧文件的最大个数
     maxAge: 90      #保留旧文件的最大天数
+
+avatar:
+    path: ./avatar
+
+oss:
+    bucketName: "alayanew"
+    region: "cn-beijing"
+    path: "https://s1.alayanew.com/assets/static/bp/model/"
+
+proxy:
+    enabled: true     #访问外网时,是否使用代理
+    httpProxy: http://127.0.0.1:7890
+
+#aidc:   生产
+#    hd-01: hd-01
+#    hd-02: hd-02
+#    hd-03: hd-03
+
+#开发
+aidc:
+    dev01-2: hd-01
+    dev01-5: hd-02
+    gpsf-dingo: hd-03
+    unite-1: hd-01
+    unite-2: hd-02
+    demo: hd-01
+    demo-2: hd-02
+    demo-1: hd-01
+    bugfix-1: hd-01
+    hd-01: hd-01
+    hd-02: hd-02
+    hd-03: hd-03
+    xn-01: xn-01
+    hd-04: hd-04

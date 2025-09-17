@@ -18,4 +18,4 @@ import (
 	"github.com/google/wire"
 )
 
-var HandlerProvider = wire.NewSet(NewSysHandler, NewManagerHandler)
+var HandlerProvider = wire.NewSet(NewSysHandler, NewManagerHandler, NewAlayanewHandler)

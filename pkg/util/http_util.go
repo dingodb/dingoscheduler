@@ -18,21 +18,28 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/config"
 	"dingoscheduler/pkg/consts"
-	"dingoscheduler/pkg/prom"
 
 	"github.com/avast/retry-go"
-	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
 
-var reqTimeout = 10 * time.Second
+var (
+	reqTimeout   = 10 * time.Second
+	simpleClient *http.Client
+	proxyClient  *http.Client
+	simpleOnce   sync.Once
+	proxyOnce    sync.Once
+)
 
 func RetryRequest(f func() (*common.Response, error)) (*common.Response, error) {
 	var resp *common.Response
@@ -49,61 +56,54 @@ func RetryRequest(f func() (*common.Response, error)) (*common.Response, error) 
 	return resp, err
 }
 
-func NewHTTPClient(timeout time.Duration) (*http.Client, error) {
-	client := &http.Client{Timeout: timeout}
-	return client, nil
+func NewHTTPClient() (*http.Client, error) {
+	simpleOnce.Do(
+		func() {
+			simpleClient = &http.Client{Timeout: reqTimeout}
+		})
+	return simpleClient, nil
 }
 
-func constructClient(timeout time.Duration) (string, *http.Client, error) {
+func NewHTTPClientWithProxy() (*http.Client, error) {
+	proxyOnce.Do(func() {
+		proxyClient = &http.Client{Timeout: reqTimeout}
+		proxyURL, err := url.Parse(config.SysConfig.GetHttpProxy())
+		if err != nil {
+			zap.S().Errorf("代理地址解析失败: %v", err)
+			return
+		}
+		transport := &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ForceAttemptHTTP2:     false,
+			ResponseHeaderTimeout: 10 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+		}
+		proxyClient.Transport = transport
+	})
+	return proxyClient, nil
+}
+
+func constructClient() (string, *http.Client, error) {
 	var (
-		domain string
 		client *http.Client
 		err    error
 	)
-	client, err = NewHTTPClient(timeout)
-	return domain, client, err
-}
-
-func Head(requestUri string, headers map[string]string, timeout time.Duration) (*common.Response, error) {
-	domain, client, err := constructClient(timeout)
-	if err != nil {
-		return nil, fmt.Errorf("construct http client err: %v", err)
+	// 代理不可用，且允许代理切换到备用，使用直联。
+	if config.SysConfig.Proxy.Enabled {
+		client, err = NewHTTPClientWithProxy()
+	} else {
+		client, err = NewHTTPClient()
 	}
-	requestURL := fmt.Sprintf("%s%s", domain, requestUri)
-	return doHead(client, requestURL, headers)
-}
-
-func doHead(client *http.Client, targetURL string, headers map[string]string) (*common.Response, error) {
-	req, err := http.NewRequest("HEAD", targetURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("创建HEAD请求失败: %v", err)
-	}
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		zap.S().Warnf("URL请求失败: %s, 错误: %v", targetURL, err)
-		return nil, fmt.Errorf("执行HEAD请求失败: %v", err)
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			zap.S().Errorf("关闭响应体资源时出现异常: %v", r)
-		}
-		resp.Body.Close()
-	}()
-	respHeaders := make(map[string]interface{})
-	for key, values := range resp.Header {
-		respHeaders[key] = values
-	}
-	return &common.Response{
-		StatusCode: resp.StatusCode,
-		Headers:    respHeaders,
-	}, nil
+	return config.SysConfig.GetHFURLBase(), client, err
 }
 
 func GetForDomain(domain, requestUri string, headers map[string]string) (*common.Response, error) {
-	_, client, err := constructClient(reqTimeout)
+	client, err := NewHTTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("construct http client err: %v", err)
 	}
@@ -111,8 +111,16 @@ func GetForDomain(domain, requestUri string, headers map[string]string) (*common
 	return doGet(client, requestURL, headers)
 }
 
-func Get(requestUri string, headers map[string]string, timeout time.Duration) (*common.Response, error) {
-	domain, client, err := constructClient(timeout)
+func GetForURL(requestURL string, headers map[string]string) (*common.Response, error) {
+	_, client, err := constructClient()
+	if err != nil {
+		return nil, fmt.Errorf("construct http client err: %v", err)
+	}
+	return doGet(client, requestURL, headers)
+}
+
+func Get(requestUri string, headers map[string]string) (*common.Response, error) {
+	domain, client, err := constructClient()
 	if err != nil {
 		return nil, fmt.Errorf("construct http client err: %v", err)
 	}
@@ -125,8 +133,10 @@ func doGet(client *http.Client, targetURL string, headers map[string]string) (*c
 	if err != nil {
 		return nil, fmt.Errorf("创建GET请求失败: %v", err)
 	}
-	for key, value := range headers {
-		req.Header.Set(key, value)
+	if headers != nil {
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -158,24 +168,24 @@ func doGet(client *http.Client, targetURL string, headers map[string]string) (*c
 	}, nil
 }
 
-func GetStream(domain, uri string, headers map[string]string, timeout time.Duration, f func(r *http.Response) error) error {
+func GetStream(domain, uri string, headers map[string]string, f func(r *http.Response) error) error {
 	var (
 		client *http.Client
 		err    error
 	)
 	if IsInnerDomain(domain) {
-		client, err = NewHTTPClient(timeout)
+		client, err = NewHTTPClient()
 	} else {
-		domain, client, err = constructClient(timeout)
+		domain, client, err = constructClient()
 	}
 	if err != nil {
 		return fmt.Errorf("construct http client err: %v", err)
 	}
 	requestURL := fmt.Sprintf("%s%s", domain, uri)
-	return doGetStream(client, requestURL, headers, timeout, f)
+	return doGetStream(client, requestURL, headers, f)
 }
 
-func doGetStream(client *http.Client, targetURL string, headers map[string]string, timeout time.Duration, f func(r *http.Response) error) error {
+func doGetStream(client *http.Client, targetURL string, headers map[string]string, f func(r *http.Response) error) error {
 	escapedURL := strings.ReplaceAll(targetURL, "#", "%23")
 	req, err := http.NewRequest("GET", escapedURL, nil)
 	if err != nil {
@@ -197,7 +207,7 @@ func doGetStream(client *http.Client, targetURL string, headers map[string]strin
 }
 
 func PostForDomain(domain, requestUri string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
-	_, client, err := constructClient(reqTimeout)
+	client, err := NewHTTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("construct http client err: %v", err)
 	}
@@ -206,7 +216,7 @@ func PostForDomain(domain, requestUri string, contentType string, data []byte, h
 }
 
 func Post(requestUri string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
-	domain, client, err := constructClient(reqTimeout)
+	domain, client, err := constructClient()
 	if err != nil {
 		return nil, fmt.Errorf("construct http client err: %v", err)
 	}
@@ -248,83 +258,6 @@ func doPost(client *http.Client, targetURL string, contentType string, data []by
 		respHeaders[key] = values
 	}
 
-	return &common.Response{
-		StatusCode: resp.StatusCode,
-		Headers:    respHeaders,
-		Body:       body,
-	}, nil
-}
-
-func ResponseStream(c echo.Context, fileName string, headers map[string]string, content <-chan []byte) error {
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	for k, v := range headers {
-		c.Response().Header().Set(k, v)
-	}
-	c.Response().WriteHeader(http.StatusOK)
-	flusher, ok := c.Response().Writer.(http.Flusher)
-	if !ok {
-		return c.String(http.StatusInternalServerError, "Streaming unsupported!")
-	}
-	for {
-		select {
-		case b, ok := <-content:
-			if !ok {
-				zap.S().Infof("ResponseStream complete, %s", fileName)
-				return nil
-			}
-			if len(b) > 0 {
-				if _, err := c.Response().Write(b); err != nil {
-					zap.S().Warnf("ResponseStream write err,file:%s,%v", fileName, err)
-					return ErrorProxyTimeout(c)
-				}
-				if config.SysConfig.EnableMetric() {
-					// 原子性地更新响应总数
-					source := Itoa(c.Get(consts.PromSource))
-					orgRepo := Itoa(c.Get(consts.PromOrgRepo))
-					prom.PromRequestByteCounter(prom.RequestResponseByte, source, int64(len(b)), orgRepo)
-				}
-			}
-			flusher.Flush()
-		}
-	}
-}
-
-func ForwardRequest(originalReq *http.Request, timeout time.Duration) (*common.Response, error) {
-	domain, client, err := constructClient(timeout)
-	if err != nil {
-		return nil, fmt.Errorf("construct http client err: %v", err)
-	}
-	targetURL := fmt.Sprintf("%s%s", domain, originalReq.URL.Path)
-	proxyReq, err := http.NewRequest(originalReq.Method, targetURL, originalReq.Body)
-	if err != nil {
-		return nil, fmt.Errorf("创建转发请求失败: %v", err)
-	}
-	for key, values := range originalReq.Header {
-		for _, value := range values {
-			proxyReq.Header.Add(key, value)
-		}
-	}
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		zap.S().Warnf("转发请求失败: %s, 错误: %v", targetURL, err)
-		return nil, fmt.Errorf("执行转发请求失败: %v", err)
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			zap.S().Errorf("关闭响应体资源时出现异常: %v", r)
-		}
-		resp.Body.Close()
-	}()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应体失败: %v", err)
-	}
-	respHeaders := make(map[string]interface{})
-	for key, values := range resp.Header {
-		respHeaders[key] = values
-	}
 	return &common.Response{
 		StatusCode: resp.StatusCode,
 		Headers:    respHeaders,

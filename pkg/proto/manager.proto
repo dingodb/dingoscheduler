@@ -13,9 +13,14 @@ service Manager {
     rpc Heartbeat (HeartbeatRequest) returns (google.protobuf.Empty);
     // 下载文件开始时，触发调度
     rpc SchedulerFile (SchedulerFileRequest) returns (SchedulerFileResponse);
+
+    // 下载文件开始时，触发调度
+    rpc SyncFileProcess (SchedulerFileRequest) returns (google.protobuf.Empty);
+
     // 文件下载结束，信息上报
     rpc ReportFileProcess (FileProcessRequest) returns (google.protobuf.Empty);
-
+    // 文件删除，同步删除记录
+    rpc DeleteByEtagsAndFields (DeleteByEtagsAndFieldsRequest) returns (google.protobuf.Empty);
 }
 
 
@@ -36,6 +41,8 @@ message RegisterResponse {
 // 心跳请求
 message HeartbeatRequest {
     int32 id = 1;
+    string instanceId = 2;
+    bool  online = 3;
 }
 
 message SchedulerFileRequest {
@@ -48,7 +55,6 @@ message SchedulerFileRequest {
     int64 startPos = 7;
     int64 endPos = 8;
     int64 fileSize = 9;
-    bool  online = 10;
 }
 
 // 注册响应
@@ -67,3 +73,13 @@ message FileProcessRequest{
     int64 endPos = 3;
     int32 status = 4;
 }
+
+message DeleteByEtagsAndFieldsRequest{
+    string etag = 1;
+    string datatype = 2;
+    string org = 3;
+    string repo = 4;
+    string name = 5;
+    string instanceID = 6;
+}
+

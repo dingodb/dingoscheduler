@@ -18,6 +18,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"math"
@@ -238,4 +239,12 @@ func ProcessPaths(paths []string) []string {
 		}
 	}
 	return repos
+}
+
+func GetOrgNameKey(orgName string) string {
+	return fmt.Sprintf("org/%s", orgName)
+}
+
+func GetSpeedKey(instanceId string, online bool) string {
+	return fmt.Sprintf("speed/%s/%v", instanceId, online)
 }

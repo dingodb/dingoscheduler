@@ -16,7 +16,9 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"time"
 
 	"dingoscheduler/internal/model"
 
@@ -30,11 +32,16 @@ var SysConfig *Config
 var SystemInfo *model.SystemInfo
 
 type Config struct {
-	Server      ServerConfig `json:"server" yaml:"server"`
-	BizDBConfig DBConfig     `json:"bizDB" yaml:"bizDB"`
-	Scheduler   Scheduler    `json:"scheduler" yaml:"scheduler"`
-	Retry       Retry        `json:"retry" yaml:"retry"`
-	Log         LogConfig    `json:"log" yaml:"log"`
+	Server      ServerConfig      `json:"server" yaml:"server"`
+	BizDBConfig DBConfig          `json:"bizDB" yaml:"bizDB"`
+	Cache       Cache             `json:"cache" yaml:"cache"`
+	Scheduler   Scheduler         `json:"scheduler" yaml:"scheduler"`
+	Retry       Retry             `json:"retry" yaml:"retry"`
+	Log         LogConfig         `json:"log" yaml:"log"`
+	Avatar      Avatar            `json:"avatar" yaml:"avatar"`
+	Oss         Oss               `json:"oss" yaml:"oss"`
+	Proxy       Proxy             `json:"proxy" yaml:"proxy"`
+	Aidc        map[string]string `json:"aidc" yaml:"aidc"`
 }
 
 type ServerConfig struct {
@@ -44,6 +51,8 @@ type ServerConfig struct {
 	PProf     bool   `json:"pprof" yaml:"pprof"`
 	PProfPort int    `json:"pprofPort" yaml:"pprofPort"`
 	Metrics   bool   `json:"metrics" yaml:"metrics"`
+	HfNetLoc  string `json:"hfNetLoc" yaml:"hfNetLoc"`
+	HfScheme  string `json:"hfScheme" yaml:"hfScheme" validate:"oneof=https http"`
 	Ssl       SSL    `json:"ssl" yaml:"ssl"`
 }
 
@@ -65,6 +74,25 @@ type LogConfig struct {
 	MaxAge     int `json:"maxAge" yaml:"maxAge"`
 }
 
+type Avatar struct {
+	Path string `yaml:"path"`
+}
+type Cache struct {
+	DefaultExpiration int `json:"defaultExpiration" yaml:"defaultExpiration" `
+	CleanupInterval   int `json:"cleanupInterval" yaml:"cleanupInterval"`
+}
+
+type Oss struct {
+	Path       string `yaml:"path"`
+	BucketName string `yaml:"bucketName"`
+	Region     string `yaml:"region"`
+}
+
+type Proxy struct {
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
+	HttpProxy string `json:"httpProxy" yaml:"httpProxy"`
+}
+
 type Scheduler struct {
 	Port int32 `json:"port" yaml:"port"`
 }
@@ -79,6 +107,16 @@ type DBConfig struct {
 	Timeout     string `yaml:"timeout"`
 	MaxConn     int    `yaml:"maxConn"`
 	MaxIdleConn int    `yaml:"maxIdleConn"`
+}
+
+func (c *Config) GetHFURLBase() string {
+	return fmt.Sprintf("%s://%s", c.GetHfScheme(), c.GetHfNetLoc())
+}
+func (c *Config) GetHfScheme() string {
+	return c.Server.HfScheme
+}
+func (c *Config) GetHfNetLoc() string {
+	return c.Server.HfNetLoc
 }
 
 func (c *Config) GetHost() string {
@@ -100,6 +138,24 @@ func (c *Config) SetDefaults() {
 		c.Server.PProfPort = 6060
 	}
 	c.Server.Ssl.EnableCA = true
+}
+
+func (c *Config) GetDefaultExpiration() time.Duration {
+	if c.Cache.DefaultExpiration == 0 {
+		c.Cache.DefaultExpiration = 5
+	}
+	return time.Duration(c.Cache.DefaultExpiration) * time.Hour
+}
+
+func (c *Config) GetCleanupInterval() time.Duration {
+	if c.Cache.CleanupInterval == 0 {
+		c.Cache.CleanupInterval = 10
+	}
+	return time.Duration(c.Cache.CleanupInterval) * time.Hour
+}
+
+func (c *Config) GetSpeedExpiration() time.Duration {
+	return time.Duration(5) * time.Minute
 }
 
 func Scan(path string) (*Config, error) {
@@ -133,4 +189,8 @@ func Scan(path string) (*Config, error) {
 	log.Info(string(marshal))
 	SystemInfo = &model.SystemInfo{}
 	return &c, nil
+}
+
+func (c *Config) GetHttpProxy() string {
+	return c.Proxy.HttpProxy
 }

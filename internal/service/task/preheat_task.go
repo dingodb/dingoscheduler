@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"dingoscheduler/internal/model"
 	"dingoscheduler/pkg/util"
@@ -25,7 +24,7 @@ func (d *DownloadTask) DoTask() {
 		headers["authorization"] = fmt.Sprintf("Bearer %s", d.Job.Token)
 	}
 	headers["preheat"] = "1"
-	err := util.GetStream(d.Domain, uri, headers, 0*time.Minute, func(resp *http.Response) error {
+	err := util.GetStream(d.Domain, uri, headers, func(resp *http.Response) error {
 		for {
 			select {
 			default:

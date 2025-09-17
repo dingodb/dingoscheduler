@@ -22,6 +22,7 @@ import (
 	myorm "dingoscheduler/pkg/gorm"
 
 	"github.com/google/wire"
+	"github.com/patrickmn/go-cache"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -30,6 +31,7 @@ var BaseDataProvider = wire.NewSet(NewBaseData)
 
 type BaseData struct {
 	BizDB *gorm.DB
+	Cache *cache.Cache
 }
 
 func initDB(dbConfig *config.DBConfig) (*gorm.DB, error) {
@@ -45,24 +47,25 @@ func initDB(dbConfig *config.DBConfig) (*gorm.DB, error) {
 	return dbClient, err
 }
 
-func NewBaseData(config *config.Config) (*BaseData, func(), error) {
-	bizClient, err := initDB(&config.BizDBConfig)
+func NewBaseData(conf *config.Config) (*BaseData, func(), error) {
+	bizClient, err := initDB(&conf.BizDBConfig)
 	if err != nil {
 		return nil, nil, err
 	}
-
+	gCache := cache.New(config.SysConfig.GetDefaultExpiration(), config.SysConfig.GetCleanupInterval())
 	cleanup := func() {
 		bizDb, _ := bizClient.DB()
 		_ = bizDb.Close()
 		zap.S().Info("datasource cleanup ok")
 	}
 
-	var debug = config.Server.Mode != "release"
+	var debug = conf.Server.Mode != "release"
 
 	if debug {
 		bizClient = bizClient.Debug()
 	}
 	return &BaseData{
 		BizDB: bizClient,
+		Cache: gCache,
 	}, cleanup, nil
 }
