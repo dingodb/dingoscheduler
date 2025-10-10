@@ -158,6 +158,10 @@ func (c *Config) GetSpeedExpiration() time.Duration {
 	return time.Duration(5) * time.Minute
 }
 
+func (c *Config) GetCacheExpiration() time.Duration {
+	return time.Duration(30) * time.Minute
+}
+
 func Scan(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

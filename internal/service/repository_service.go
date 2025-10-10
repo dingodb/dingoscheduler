@@ -21,9 +21,11 @@ import (
 	"net/url"
 
 	"dingoscheduler/internal/dao"
+	"dingoscheduler/internal/data"
 	"dingoscheduler/internal/model"
 	"dingoscheduler/internal/model/dto"
 	"dingoscheduler/internal/model/query"
+	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/config"
 	myerr "dingoscheduler/pkg/error"
 	"dingoscheduler/pkg/util"
@@ -35,6 +37,7 @@ import (
 )
 
 type RepositoryService struct {
+	baseData            *data.BaseData
 	dingospeedDao       *dao.DingospeedDao
 	modelFileProcessDao *dao.ModelFileProcessDao
 	repositoryDao       *dao.RepositoryDao
@@ -45,12 +48,13 @@ type RepositoryService struct {
 }
 
 func NewRepositoryService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *dao.ModelFileProcessDao,
-	repositoryDao *dao.RepositoryDao, tagDao *dao.TagDao, organizationDao *dao.OrganizationDao, organizationService *OrganizationService) *RepositoryService {
+	repositoryDao *dao.RepositoryDao, tagDao *dao.TagDao, baseData *data.BaseData, organizationDao *dao.OrganizationDao, organizationService *OrganizationService) *RepositoryService {
 	return &RepositoryService{
 		dingospeedDao:       dingospeedDao,
 		repositoryDao:       repositoryDao,
 		modelFileProcessDao: modelFileProcessDao,
 		tagDao:              tagDao,
+		baseData:            baseData,
 		organizationDao:     organizationDao,
 		organizationService: organizationService,
 		client:              &http.Client{},
@@ -99,13 +103,13 @@ func (s *RepositoryService) PersistRepo(c echo.Context, repoQuery *query.Persist
 				return err
 			}
 			// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
-			// isComplete, err := s.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
-			// if err != nil {
-			// 	return err
-			// }
-			// if !isComplete {
-			// 	continue
-			// }
+			isComplete, err := s.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
+			if err != nil {
+				return err
+			}
+			if !isComplete {
+				continue
+			}
 			// 保存组织图片
 			err = s.organizationService.PersistOrgLogo(repository.Org)
 			if err != nil {
@@ -208,27 +212,39 @@ func (s *RepositoryService) GetRepositoryById(id int64) (*dto.Repository, error)
 	return &repo, nil
 }
 
-func (s *RepositoryService) RepositoryCardById(c echo.Context, instanceId string, id int64) error {
-	targetURL, repository, err := s.getRepository(instanceId, id)
-	if err != nil {
-		return err
-	}
-	forwardURL := fmt.Sprintf("%s/models/%s/resolve/%s/README.md", targetURL.String(), repository.OrgRepo, repository.Sha)
-	resp, err := s.requestForward(c, targetURL, forwardURL)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	for key, values := range resp.Header {
-		for _, value := range values {
-			c.Response().Header().Add(key, value)
+func (s *RepositoryService) RepositoryCardById(c echo.Context, instanceId string, id int64) (*common.Response, error) {
+	cardKey := util.GetCardKey(instanceId, id)
+	var commResp *common.Response
+	if v, ok := s.baseData.Cache.Get(cardKey); ok {
+		commResp = v.(*common.Response)
+		s.baseData.Cache.Set(cardKey, commResp, config.SysConfig.GetCacheExpiration())
+	} else {
+		targetURL, repository, err := s.getRepository(instanceId, id)
+		if err != nil {
+			return nil, err
 		}
+		forwardURL := fmt.Sprintf("%s/models/%s/resolve/%s/README.md", targetURL.String(), repository.OrgRepo, repository.Sha)
+		resp, err := s.requestForward(c, targetURL, forwardURL)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("读取响应体失败: %v", err)
+		}
+		headers := make(map[string]interface{}, 0)
+		for key, values := range resp.Header {
+			headers[key] = values
+		}
+		commResp = &common.Response{
+			StatusCode: resp.StatusCode,
+			Headers:    headers,
+			Body:       body,
+		}
+		s.baseData.Cache.Set(cardKey, commResp, config.SysConfig.GetCacheExpiration())
 	}
-	c.Response().WriteHeader(resp.StatusCode)
-	if _, err := io.Copy(c.Response().Writer, resp.Body); err != nil {
-		return fmt.Errorf("响应内容回传失败")
-	}
-	return nil
+	return commResp, nil
 }
 
 func (s *RepositoryService) RepositoryFilesById(c echo.Context, instanceId string, id int64, filePath string) error {

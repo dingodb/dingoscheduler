@@ -51,14 +51,16 @@ func (r *HttpRouter) initRouter() {
 		r.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
 	r.echo.POST("/api/preheat", r.managerHandler.PreheatHandler)
+	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler) // 持久化仓库
+	r.alayaNewRouter()                                                   // alayanew接口
+}
 
-	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler)                                     // 持久化仓库
+func (r *HttpRouter) alayaNewRouter() {
 	r.echo.GET("/api/v1/repositories", r.alayanewHandler.RepositoriesHandler)                                // 仓库列表
 	r.echo.GET("/api/v1/repository/:id", r.alayanewHandler.RepositoryInfoHandler)                            // 单个仓库信息描述
 	r.echo.GET("/api/v1/repository/card/:aidcCode/:id", r.alayanewHandler.RepositoryCardHandler)             // 仓库介绍
 	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/", r.alayanewHandler.RepositoryFilesHandler)          // 仓库文件目录
 	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/:filePath", r.alayanewHandler.RepositoryFilesHandler) // 仓库文件目录
-
 	r.echo.GET("/api/v1/tags", r.alayanewHandler.TagHandler)
 	r.echo.GET("/api/v1/task_tags", r.alayanewHandler.TaskTagHandler)
 	r.echo.GET("/api/v1/main_tags", r.alayanewHandler.MainTagHandler)

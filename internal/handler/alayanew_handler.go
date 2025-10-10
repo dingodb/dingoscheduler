@@ -130,10 +130,18 @@ func (handler *AlayanewHandler) RepositoryCardHandler(c echo.Context) error {
 		return util.ErrorRequestParam(c)
 	}
 	id := util.Atoi64(c.Param("id"))
-	err = handler.repositoryService.RepositoryCardById(c, instanceId, id)
+	resp, err := handler.repositoryService.RepositoryCardById(c, instanceId, id)
 	if err != nil {
 		zap.S().Errorf("GetRepositoryById err.%v", err)
 		return util.ResponseError(c)
+	}
+	extractHeaders := resp.ExtractHeaders(resp.Headers)
+	for key, values := range extractHeaders {
+		c.Response().Header().Add(key, values)
+	}
+	c.Response().WriteHeader(resp.StatusCode)
+	if _, err := c.Response().Write(resp.Body); err != nil {
+		return fmt.Errorf("响应内容回传失败")
 	}
 	return nil
 }

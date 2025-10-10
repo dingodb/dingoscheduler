@@ -36,8 +36,7 @@ import (
 )
 
 var (
-	schedulerGap = 30 * time.Second
-	heartGap     = 5 * time.Minute
+	heartGap = 5 * time.Minute
 )
 
 type SchedulerService struct {
@@ -77,6 +76,7 @@ func (s *SchedulerService) Register(ctx context.Context, req *pb.RegisterRequest
 		Online:     req.Online,
 		UpdatedAt:  time.Now(),
 	}
+
 	speed, err := s.dingospeedDao.GetEntity(req.InstanceId, req.Online)
 	if err != nil {
 		zap.S().Errorf("getEntity err.%v", err)
@@ -148,17 +148,17 @@ func (s *SchedulerService) getOptimumSpeed(instanceId string) *model.Dingospeed 
 
 func (s *SchedulerService) getApiLock(apiPath string) *sync.RWMutex {
 	if val, ok := s.baseData.Cache.Get(apiPath); ok {
-		s.baseData.Cache.Set(apiPath, val, schedulerGap)
+		s.baseData.Cache.Set(apiPath, val, config.SysConfig.GetCacheExpiration())
 		return val.(*sync.RWMutex)
 	}
 	s.scheudlerLock.Lock()
 	defer s.scheudlerLock.Unlock()
 	if val, ok := s.baseData.Cache.Get(apiPath); ok {
-		s.baseData.Cache.Set(apiPath, val, schedulerGap)
+		s.baseData.Cache.Set(apiPath, val, config.SysConfig.GetCacheExpiration())
 		return val.(*sync.RWMutex)
 	}
 	newLock := &sync.RWMutex{}
-	s.baseData.Cache.Set(apiPath, newLock, schedulerGap)
+	s.baseData.Cache.Set(apiPath, newLock, config.SysConfig.GetCacheExpiration())
 	return newLock
 }
 

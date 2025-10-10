@@ -40,7 +40,7 @@ func wireApp(configConfig *config.Config) (*app.App, func(), error) {
 	tagDao := dao.NewTagDao(baseData)
 	organizationDao := dao.NewOrganizationDao(baseData)
 	organizationService := service.NewOrganizationService(organizationDao)
-	repositoryService := service.NewRepositoryService(dingospeedDao, modelFileProcessDao, repositoryDao, tagDao, organizationDao, organizationService)
+	repositoryService := service.NewRepositoryService(dingospeedDao, modelFileProcessDao, repositoryDao, tagDao, baseData, organizationDao, organizationService)
 	managerHandler := handler.NewManagerHandler(schedulerService, preheatJobService, repositoryService)
 	sysService := service.NewSysService()
 	sysHandler := handler.NewSysHandler(sysService)

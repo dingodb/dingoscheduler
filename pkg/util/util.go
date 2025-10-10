@@ -248,3 +248,7 @@ func GetOrgNameKey(orgName string) string {
 func GetSpeedKey(instanceId string, online bool) string {
 	return fmt.Sprintf("speed/%s/%v", instanceId, online)
 }
+
+func GetCardKey(instanceId string, id int64) string {
+	return fmt.Sprintf("card/%s/%d", instanceId, id)
+}
