@@ -11,6 +11,8 @@ type Repository struct {
 	Sha          string   `gorm:"column:sha;not null" json:"sha"`
 	Icon         string   `gorm:"column:icon;not null" json:"icon"`
 	Tags         []string `gorm:"-" json:"tags,omitempty"`
+	UsedStorage  int64    `gorm:"column:used_storage;not null" json:"usedStorage"`
+	Status       int32    `gorm:"column:status;not null" json:"status"`
 }
 
 type CacheJobResp struct {

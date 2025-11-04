@@ -230,7 +230,7 @@ func (r *RepositoryDao) VerifyRepoComplete(instanceId, datatype, org, repo strin
 
 func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository, int64, error) {
 	repositories := make([]*model.Repository, 0)
-	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.org, t1.org_repo, t1.like_num, t1.download_num, t1.pipeline_tag, t1.last_modified ")
+	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.org, t1.org_repo, t1.like_num, t1.download_num, t1.pipeline_tag, t1.last_modified, t1.used_storage, t1.status")
 	if query.InstanceId != "" {
 		db.Where("t1.instance_id = ?", query.InstanceId)
 	}
@@ -243,6 +243,11 @@ func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository,
 	if query.Datatype != "" {
 		db.Where("t1.datatype = ?", query.Datatype)
 	}
+
+	if query.Status != "" {
+		db.Where("t1.status = ?", util.Atoi(query.Status))
+	}
+
 	tags := make([]string, 0)
 	if query.Library != "" {
 		tags = append(tags, strings.Split(query.Library, ",")...)

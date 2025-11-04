@@ -62,6 +62,7 @@ func (handler *AlayanewHandler) RepositoriesHandler(c echo.Context) error {
 	inferenceProvider := c.QueryParam("inference_provider")
 	other := c.QueryParam("other")
 	datatype := c.QueryParam("datatype")
+	status := c.QueryParam("status")
 	models, total, err := handler.repositoryService.RepositoryList(&query.ModelQuery{
 		InstanceId:        instanceId,
 		Name:              name,
@@ -77,6 +78,7 @@ func (handler *AlayanewHandler) RepositoriesHandler(c echo.Context) error {
 		License:           license,
 		Other:             other,
 		Datatype:          datatype,
+		Status:            status,
 	})
 	if err != nil {
 		zap.S().Errorf("RepositoryList err.%v", err)

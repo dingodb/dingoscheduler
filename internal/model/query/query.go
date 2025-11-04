@@ -64,6 +64,7 @@ type ModelQuery struct {
 	License           string
 	Other             string
 	Datatype          string `json:"datatype"`
+	Status            string `json:"status"`
 }
 
 type TagQuery struct {
