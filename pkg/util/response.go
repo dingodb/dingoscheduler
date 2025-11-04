@@ -15,8 +15,11 @@
 package util
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+
+	myerr "dingoscheduler/pkg/error"
 
 	"github.com/labstack/echo/v4"
 )
@@ -139,9 +142,24 @@ func ResponseData(ctx echo.Context, data interface{}) error {
 	return ctx.JSON(http.StatusOK, data)
 }
 
-func ResponseError(ctx echo.Context) error {
+func NormalResponseData(ctx echo.Context, data interface{}) error {
+	return ctx.JSON(http.StatusOK, Body{
+		Data: data,
+		Msg:  "success",
+	})
+}
+
+func ResponseError(ctx echo.Context, cause ...error) error {
+	msg := "操作失败"
+	if len(cause) > 0 {
+		c := cause[0]
+		var t myerr.Error
+		if errors.As(c, &t) {
+			msg = t.Error()
+		}
+	}
 	content := map[string]string{
-		"error": "操作失败",
+		"error": msg,
 	}
 	return ctx.JSON(http.StatusInternalServerError, content)
 }
@@ -152,6 +170,11 @@ func fullHeaders(c echo.Context, headers map[string]string) {
 			c.Response().Header().Set(k, v)
 		}
 	}
+}
+
+type Body struct {
+	Msg  string      `json:"msg"`
+	Data interface{} `json:"data"`
 }
 
 type PageData struct {

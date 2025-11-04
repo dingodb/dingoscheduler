@@ -55,11 +55,12 @@ const (
 )
 
 const (
-	StatusPreheatCommit   = 0
-	StatusPreheating      = 1
-	StatusPreheatBreak    = 2
-	StatusPreheatCancel   = 3
-	StatusPreheatComplete = 4
+	CacheTypePreheat = 1
+	CacheTypeMount   = 2
+
+	StatusCacheJobIng      = 1
+	StatusCacheJobBreak    = 2
+	StatusCacheJobComplete = 3
 )
 
 const (

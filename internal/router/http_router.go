@@ -27,14 +27,17 @@ type HttpRouter struct {
 	sysHandler      *handler.SysHandler
 	managerHandler  *handler.ManagerHandler
 	alayanewHandler *handler.AlayanewHandler
+	cacheJobHandler *handler.CacheJobHandler
 }
 
-func NewHttpRouter(echo *echo.Echo, managerHandler *handler.ManagerHandler, sysHandler *handler.SysHandler, alayanewHandler *handler.AlayanewHandler) *HttpRouter {
+func NewHttpRouter(echo *echo.Echo, managerHandler *handler.ManagerHandler, sysHandler *handler.SysHandler,
+	alayanewHandler *handler.AlayanewHandler, cacheJobHandler *handler.CacheJobHandler) *HttpRouter {
 	r := &HttpRouter{
 		echo:            echo,
 		sysHandler:      sysHandler,
 		managerHandler:  managerHandler,
 		alayanewHandler: alayanewHandler,
+		cacheJobHandler: cacheJobHandler,
 	}
 	r.initRouter()
 	return r
@@ -50,9 +53,9 @@ func (r *HttpRouter) initRouter() {
 	if config.SysConfig.EnableMetric() {
 		r.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
-	r.echo.POST("/api/preheat", r.managerHandler.PreheatHandler)
 	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler) // 持久化仓库
 	r.alayaNewRouter()                                                   // alayanew接口
+	r.cacheJobRouter()                                                   // 模型缓存
 }
 
 func (r *HttpRouter) alayaNewRouter() {
@@ -64,4 +67,12 @@ func (r *HttpRouter) alayaNewRouter() {
 	r.echo.GET("/api/v1/tags", r.alayanewHandler.TagHandler)
 	r.echo.GET("/api/v1/task_tags", r.alayanewHandler.TaskTagHandler)
 	r.echo.GET("/api/v1/main_tags", r.alayanewHandler.MainTagHandler)
+}
+
+func (r *HttpRouter) cacheJobRouter() {
+	r.echo.GET("/api/v1/cacheJob/list", r.cacheJobHandler.ListCacheJobHandler)
+	r.echo.POST("/api/v1/cacheJob/create", r.cacheJobHandler.CreateCacheJobHandler)
+	r.echo.POST("/api/v1/cacheJob/stop", r.cacheJobHandler.StopCacheJobHandler)
+	r.echo.POST("/api/v1/cacheJob/resume", r.cacheJobHandler.ResumeCacheJobHandler)
+	r.echo.DELETE("/api/v1/cacheJob/:id", r.cacheJobHandler.DeleteCacheJobHandler)
 }

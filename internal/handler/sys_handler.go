@@ -27,5 +27,5 @@ func (s *SysHandler) Info(c echo.Context) error {
 		info.Version = appInfo.Version()
 		info.StartTime = appInfo.StartTime()
 	}
-	return util.ResponseData(c, info)
+	return util.NormalResponseData(c, info)
 }

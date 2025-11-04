@@ -10,12 +10,27 @@ type ModelFileRecordQuery struct {
 	StartPos   int64
 }
 
-type PreheatJobQuery struct {
+type CacheJobQuery struct {
+	Id             int64  `json:"id"`
+	Type           int32  `json:"type"`
+	InstanceId     string `json:"instanceId"`
+	Datatype       string `json:"datatype"`
+	Org            string `json:"org"`
+	Repo           string `json:"repo"`
+	Token          string `json:"token"`
+	Page, PageSize int
+}
+
+type JobStatus struct {
+	Id         int64  `json:"id"`
 	InstanceId string `json:"instanceId"`
-	Datatype   string `json:"datatype"`
-	Org        string `json:"org"`
-	Repo       string `json:"repo"`
-	Token      string `json:"token"`
+	Status     int32  `json:"status"`
+	ErrorMsg   string `json:"errorMsg"`
+}
+
+type UpdateMountCachePidReq struct {
+	Id  int64 `json:"id"`
+	Pid int32 `json:"pid"`
 }
 
 type PathInfoQuery struct {
@@ -28,8 +43,10 @@ type PathInfoQuery struct {
 }
 
 type PersistRepoQuery struct {
-	InstanceIds []string `json:"instanceIds"`
-	Token       string   `json:"token"`
+	InstanceIds   []string `json:"instanceIds"`
+	Authorization string   `json:"authorization"`
+	Org           string   `json:"org"`
+	Repo          string   `json:"repo"`
 }
 
 type ModelQuery struct {
@@ -46,6 +63,7 @@ type ModelQuery struct {
 	Language          string
 	License           string
 	Other             string
+	Datatype          string `json:"datatype"`
 }
 
 type TagQuery struct {
@@ -53,4 +71,8 @@ type TagQuery struct {
 	Types    []string
 	SubTypes []string
 	Labels   []string
+}
+
+type MainTagQuery struct {
+	Dataset string
 }

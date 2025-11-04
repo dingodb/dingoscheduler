@@ -7,9 +7,8 @@ WORKDIR /app
 COPY ./bin/dingoscheduler .
 
 # Expose the 8090 port of the container for external acces
-EXPOSE 8090
+EXPOSE 9091
 
-VOLUME /app/repos
 VOLUME /app/log
 
 CMD ["./dingoscheduler"]

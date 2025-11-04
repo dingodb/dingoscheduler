@@ -61,6 +61,7 @@ func (handler *AlayanewHandler) RepositoriesHandler(c echo.Context) error {
 	apps := c.QueryParam("apps")
 	inferenceProvider := c.QueryParam("inference_provider")
 	other := c.QueryParam("other")
+	datatype := c.QueryParam("datatype")
 	models, total, err := handler.repositoryService.RepositoryList(&query.ModelQuery{
 		InstanceId:        instanceId,
 		Name:              name,
@@ -75,6 +76,7 @@ func (handler *AlayanewHandler) RepositoriesHandler(c echo.Context) error {
 		Language:          language,
 		License:           license,
 		Other:             other,
+		Datatype:          datatype,
 	})
 	if err != nil {
 		zap.S().Errorf("RepositoryList err.%v", err)
@@ -228,7 +230,8 @@ func (handler *AlayanewHandler) TaskTagHandler(c echo.Context) error {
 }
 
 func (handler *AlayanewHandler) MainTagHandler(c echo.Context) error {
-	mainTags, err := handler.tagService.MainTagList()
+	datasetStr := c.QueryParam("datatype")
+	mainTags, err := handler.tagService.MainTagList(datasetStr)
 	if err != nil {
 		if e, ok := err.(myerr.Error); ok {
 			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())

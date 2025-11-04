@@ -94,7 +94,14 @@ type Proxy struct {
 }
 
 type Scheduler struct {
-	Port int32 `json:"port" yaml:"port"`
+	Port        int32       `json:"port" yaml:"port"`
+	PersistRepo PersistRepo `json:"persistRepo" yaml:"persistRepo"`
+}
+
+type PersistRepo struct {
+	Enabled     bool   `json:"enabled" yaml:"enabled"`
+	Cron        string `json:"cron" yaml:"cron"`
+	InstanceIds string `json:"instanceIds" yaml:"instanceIds"`
 }
 
 type DBConfig struct {
@@ -152,6 +159,14 @@ func (c *Config) GetCleanupInterval() time.Duration {
 		c.Cache.CleanupInterval = 10
 	}
 	return time.Duration(c.Cache.CleanupInterval) * time.Hour
+}
+
+func (c *Config) GetEnablePersistRepo() bool {
+	return c.Scheduler.PersistRepo.Enabled
+}
+
+func (c *Config) GetPersistRepoCron() string {
+	return c.Scheduler.PersistRepo.Cron
 }
 
 func (c *Config) GetSpeedExpiration() time.Duration {

@@ -21,7 +21,7 @@ RUN mkdir "repos"
 RUN mkdir -p bin/ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64  go build -ldflags "-s -w -X main.Version=$(VERSION)" -o ./bin/dingoscheduler dingoscheduler/cmd
 
 # Expose the 8090 port of the container for external acces
-EXPOSE 8090
+EXPOSE 9091
 
 VOLUME /app/repos
 VOLUME /app/log

@@ -46,6 +46,7 @@ type SchedulerService struct {
 	modelFileRecordDao  *dao.ModelFileRecordDao
 	modelFileProcessDao *dao.ModelFileProcessDao
 	repositoryDao       *dao.RepositoryDao
+	cacheJobDao         *dao.CacheJobDao
 	scheudlerLock       sync.Mutex
 }
 
@@ -55,6 +56,7 @@ func NewSchedulerService(
 	modelFileRecordDao *dao.ModelFileRecordDao,
 	modelFileProcessDao *dao.ModelFileProcessDao,
 	repositoryDao *dao.RepositoryDao,
+	cacheJobDao *dao.CacheJobDao,
 ) *SchedulerService {
 	return &SchedulerService{
 		baseData:            baseData,
@@ -62,6 +64,7 @@ func NewSchedulerService(
 		modelFileRecordDao:  modelFileRecordDao,
 		modelFileProcessDao: modelFileProcessDao,
 		repositoryDao:       repositoryDao,
+		cacheJobDao:         cacheJobDao,
 	}
 }
 
@@ -76,7 +79,6 @@ func (s *SchedulerService) Register(ctx context.Context, req *pb.RegisterRequest
 		Online:     req.Online,
 		UpdatedAt:  time.Now(),
 	}
-
 	speed, err := s.dingospeedDao.GetEntity(req.InstanceId, req.Online)
 	if err != nil {
 		zap.S().Errorf("getEntity err.%v", err)
@@ -167,7 +169,7 @@ func (s *SchedulerService) SchedulerFile(ctx context.Context, req *pb.SchedulerF
 	lock := s.getApiLock(schedulerFilePath)
 	lock.Lock()
 	defer lock.Unlock()
-	record, err := s.modelFileRecordDao.GetModelFileRecord(&query.ModelFileRecordQuery{
+	record, err := s.modelFileRecordDao.FirstModelFileRecord(&query.ModelFileRecordQuery{
 		Datatype: req.DataType,
 		Org:      req.Org,
 		Repo:     req.Repo,
@@ -203,6 +205,7 @@ func (s *SchedulerService) SchedulerFile(ctx context.Context, req *pb.SchedulerF
 		}
 		return resp, nil
 	} else {
+		process.OffsetNum = 0 // 初始
 		if processId, err := s.modelFileRecordDao.SaveSchedulerRecord(req, process); err != nil {
 			return nil, err
 		} else {
@@ -274,41 +277,83 @@ func (s *SchedulerService) schedulerFileForRecordAndProcess(processDtos []*dto.M
 	}
 }
 
-func (s *SchedulerService) SyncFileProcess(ctx context.Context, req *pb.SchedulerFileRequest) (*emptypb.Empty, error) {
-	record, err := s.modelFileRecordDao.GetModelFileRecord(&query.ModelFileRecordQuery{
-		Datatype: req.DataType,
-		Org:      req.Org,
-		Repo:     req.Repo,
-		Etag:     req.Etag,
-	})
-	if err != nil {
-		return nil, err
+func (s *SchedulerService) SyncFileProcess(ctx context.Context, req *pb.SyncFileProcessReq) (*emptypb.Empty, error) {
+	if len(req.FileProcessEntries) == 0 {
+		return nil, nil
 	}
-	process := &model.ModelFileProcess{
-		InstanceID: req.InstanceId,
-	}
-	if record != nil {
-		processDto, err := s.modelFileProcessDao.GetModelFileProcessByInstanceId(record.ID, req.InstanceId)
+	for _, fileProcess := range req.FileProcessEntries {
+		_, err := s.SingleFileProcess(fileProcess)
 		if err != nil {
 			return nil, err
 		}
-		if processDto != nil {
+	}
+	return nil, nil
+}
 
-		} else {
-			process.RecordID = record.ID
-			process.OffsetNum = req.EndPos
-			process.Status = 3 // download complete
-			if _, err = s.modelFileProcessDao.Save(process); err != nil {
-				return nil, err
-			}
-		}
-		return nil, nil
-	} else {
-		if _, err = s.modelFileRecordDao.SaveSchedulerRecord(req, process); err != nil {
+func (s *SchedulerService) SingleFileProcess(processEntry *pb.FileProcessEntry) (*emptypb.Empty, error) {
+	if processEntry.ProcessId != 0 {
+		if err := s.modelFileProcessDao.ReportFileProcess(&pb.FileProcessRequest{
+			ProcessId: processEntry.ProcessId,
+			StaPos:    processEntry.StartPos,
+			EndPos:    processEntry.EndPos,
+			Status:    processEntry.Status,
+		}); err != nil {
 			return nil, err
 		}
-		return nil, nil
+	} else {
+		record, err := s.modelFileRecordDao.FirstModelFileRecord(&query.ModelFileRecordQuery{
+			Datatype: processEntry.DataType,
+			Org:      processEntry.Org,
+			Repo:     processEntry.Repo,
+			FileName: processEntry.Name,
+			Etag:     processEntry.Etag,
+		})
+		if err != nil {
+			return nil, err
+		}
+		process := &model.ModelFileProcess{
+			InstanceID: processEntry.InstanceId,
+		}
+		if record != nil {
+			processDto, err := s.modelFileProcessDao.GetModelFileProcessByInstanceId(record.ID, processEntry.InstanceId)
+			if err != nil {
+				return nil, err
+			}
+			if processDto != nil {
+				if err := s.modelFileProcessDao.ReportFileProcess(&pb.FileProcessRequest{
+					ProcessId: processDto.ID,
+					StaPos:    processEntry.StartPos,
+					EndPos:    processEntry.EndPos,
+					Status:    processEntry.Status,
+				}); err != nil {
+					return nil, err
+				}
+			} else {
+				process.RecordID = record.ID
+				process.OffsetNum = processEntry.EndPos
+				process.Status = processEntry.Status
+				if _, err = s.modelFileProcessDao.Save(process); err != nil {
+					return nil, err
+				}
+			}
+			return nil, nil
+		} else {
+			process.OffsetNum = processEntry.EndPos
+			process.Status = processEntry.Status
+			if _, err = s.modelFileRecordDao.SaveSchedulerRecord(&pb.SchedulerFileRequest{
+				DataType: processEntry.DataType,
+				Org:      processEntry.Org,
+				Repo:     processEntry.Repo,
+				Name:     processEntry.Name,
+				Etag:     processEntry.Etag,
+				FileSize: processEntry.FileSize,
+			}, process); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
 	}
+	return nil, nil
 }
 
 func (s *SchedulerService) ReportFileProcess(ctx context.Context, req *pb.FileProcessRequest) (*emptypb.Empty, error) {
@@ -338,5 +383,39 @@ func (s *SchedulerService) DeleteByEtagsAndFields(ctx context.Context, req *pb.D
 		}
 	}
 
+	return &emptypb.Empty{}, nil
+}
+
+func (s *SchedulerService) CreateCacheJob(ctx context.Context, req *pb.CreateCacheJobReq) (*pb.CreateCacheJobResp, error) {
+	cacheJob := &model.CacheJob{
+		Type:        req.Type,
+		InstanceId:  req.InstanceId,
+		Datatype:    req.Datatype,
+		Org:         req.Org,
+		Repo:        req.Repo,
+		Token:       req.Token,
+		UsedStorage: req.UsedStorage,
+		Commit:      req.Commit,
+		Status:      req.Status,
+	}
+	err := s.cacheJobDao.Save(cacheJob)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.CreateCacheJobResp{
+		Id: cacheJob.ID,
+	}, nil
+}
+
+func (s *SchedulerService) UpdateCacheJobStatus(ctx context.Context, req *pb.UpdateCacheJobStatusReq) (*emptypb.Empty, error) {
+	err := s.cacheJobDao.UpdateStatusAndRepo(&query.JobStatus{
+		Id:         req.Id,
+		InstanceId: req.InstanceId,
+		Status:     req.Status,
+		ErrorMsg:   req.ErrorMsg,
+	})
+	if err != nil {
+		return nil, err
+	}
 	return &emptypb.Empty{}, nil
 }

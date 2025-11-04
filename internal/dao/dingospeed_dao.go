@@ -106,7 +106,7 @@ func (d *DingospeedDao) RemoteRequestMeta(domain, repoType, orgRepo, commit, aut
 	}
 	headers := map[string]string{}
 	if authorization != "" {
-		headers["authorization"] = fmt.Sprintf("Bearer %s", authorization)
+		headers["authorization"] = authorization
 	}
 	return util.RetryRequest(func() (*common.Response, error) {
 		return util.GetForDomain(domain, reqUri, headers)

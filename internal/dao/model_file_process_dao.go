@@ -137,13 +137,16 @@ func (d *ModelFileProcessDao) GetModelFileProcess(recordId int64) ([]*dto.ModelF
 func (d *ModelFileProcessDao) GetModelFileProcessByInstanceId(recordId int64, instanceId string) (*dto.ModelFileProcessDto, error) {
 	var processes []*dto.ModelFileProcessDto
 	if err := d.baseData.BizDB.Table("model_file_process t1").Select("t1.id, t1.record_id, t1.instance_id, t1.offset_num").
-		Where("t1.record_id=? and t1.instance_id", recordId, instanceId).Find(&processes).Error; err != nil {
+		Where("t1.record_id=? and t1.instance_id = ?", recordId, instanceId).Find(&processes).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return processes[0], nil
+	if len(processes) > 0 {
+		return processes[0], nil
+	}
+	return nil, nil
 }
 
 // ExistRecordIDs 查询指定InstanceID下，哪些RecordID已存在对应的ModelFileProcess记录

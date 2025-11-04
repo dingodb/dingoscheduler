@@ -16,12 +16,18 @@ package dao
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
+	"sync"
 
 	"dingoscheduler/internal/data"
 	"dingoscheduler/internal/model"
+	"dingoscheduler/internal/model/dto"
 	"dingoscheduler/internal/model/query"
+	myerr "dingoscheduler/pkg/error"
+	"dingoscheduler/pkg/util"
 
+	"github.com/bytedance/sonic"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -29,13 +35,133 @@ import (
 type RepositoryDao struct {
 	baseData         *data.BaseData
 	repositoryTagDao *RepositoryTagDao
+	dingospeedDao    *DingospeedDao
+	organizationDao  *OrganizationDao
+	tagDao           *TagDao
+	persistSync      sync.Mutex
 }
 
-func NewRepositoryDao(data *data.BaseData, repositoryTagDao *RepositoryTagDao) *RepositoryDao {
+func NewRepositoryDao(data *data.BaseData, repositoryTagDao *RepositoryTagDao, tagDao *TagDao,
+	dingospeedDao *DingospeedDao, organizationDao *OrganizationDao) *RepositoryDao {
 	return &RepositoryDao{
 		baseData:         data,
+		tagDao:           tagDao,
 		repositoryTagDao: repositoryTagDao,
+		dingospeedDao:    dingospeedDao,
+		organizationDao:  organizationDao,
 	}
+}
+
+func (r *RepositoryDao) PersistRepo(repoQuery *query.PersistRepoQuery) error {
+	zap.S().Debugf("PersistRepo instanceId:%s", repoQuery.InstanceIds)
+	var (
+		pipelineMap map[string]string
+		err         error
+	)
+	r.persistSync.Lock()
+	defer r.persistSync.Unlock()
+	pipelineMap, err = r.cachePipelineTags()
+	if err != nil {
+		return err
+	}
+	for _, instanceId := range repoQuery.InstanceIds {
+		// 存在下载记录和进度，但【模型】在仓库不存在，没有数据集。
+		freeRepositories, err := r.GetFreeRepository(instanceId, repoQuery.Org, repoQuery.Repo)
+		if err != nil {
+			return err
+		}
+		if len(freeRepositories) == 0 {
+			return myerr.New("没有要持久化的仓库。")
+		}
+		for _, repository := range freeRepositories {
+			entity, err := r.dingospeedDao.GetEntity(instanceId, true)
+			if err != nil {
+				return err
+			}
+			if entity == nil {
+				return myerr.New("该区域dingspeed未注册。")
+			}
+			speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
+			orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
+			resp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", repoQuery.Authorization)
+			if err != nil {
+				return err
+			}
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTemporaryRedirect {
+				return myerr.NewAppendCode(resp.StatusCode, "RemoteRequestMeta err")
+			}
+			var metaData dto.CommitHfSha
+			if err = sonic.Unmarshal(resp.Body, &metaData); err != nil {
+				zap.S().Errorf("unmarshal error.%v", err)
+				return err
+			}
+			// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
+			isComplete, err := r.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
+			if err != nil {
+				return err
+			}
+			if !isComplete {
+				continue
+			}
+			// 保存组织图片
+			err = r.organizationDao.PersistOrgLogo(repository.Org)
+			if err != nil {
+				return err
+			}
+			repo := &model.Repository{
+				InstanceId:    instanceId,
+				Datatype:      repository.Datatype,
+				Org:           repository.Org,
+				Repo:          repository.Repo,
+				OrgRepo:       orgRepo,
+				LikeNum:       metaData.Likes,
+				DownloadNum:   metaData.Downloads,
+				PipelineTagId: metaData.PipelineTag,
+				PipelineTag:   pipelineMap[metaData.PipelineTag],
+				LastModified:  metaData.LastModified,
+				UsedStorage:   metaData.UsedStorage,
+				Sha:           metaData.Sha,
+			}
+			tags := make([]*model.RepositoryTag, 0)
+			for _, tag := range metaData.Tags {
+				tags = append(tags, &model.RepositoryTag{
+					TagId: tag,
+				})
+			}
+			err = r.RepoAndTagSave(repo, tags)
+			if err != nil {
+				zap.S().Errorf("repository save err.%v", err)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *RepositoryDao) cachePipelineTags() (map[string]string, error) {
+	pipelineTags, err := r.tagDao.TagListByCondition(&query.TagQuery{
+		Types: []string{"pipeline_tag"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	pipelineMap := make(map[string]string, 0)
+	for _, item := range pipelineTags {
+		pipelineMap[item.ID] = item.Label
+	}
+	return pipelineMap, nil
+}
+
+func (r *RepositoryDao) verifyRepoComplete(metaData *dto.CommitHfSha, instanceId, datatype, org, repo string) (bool, error) {
+	size, err := r.VerifyRepoComplete(instanceId, datatype, org, repo)
+	if err != nil {
+		return false, err
+	}
+	fileCount := len(metaData.Siblings)
+	if size >= int64(fileCount) {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (r *RepositoryDao) SaveBySql(tx *gorm.DB, repo *model.Repository) (int64, error) {
@@ -55,7 +181,7 @@ func (r *RepositoryDao) SaveBySql(tx *gorm.DB, repo *model.Repository) (int64, e
 
 func (r *RepositoryDao) Get(id int64) (*model.Repository, error) {
 	var repository []*model.Repository
-	if err := r.baseData.BizDB.Model(&model.Repository{}).Select("id, org, org_repo,like_num, download_num, pipeline_tag,last_modified,sha ").Where("id = ?", id).Find(&repository).Error; err != nil {
+	if err := r.baseData.BizDB.Model(&model.Repository{}).Select("id, datatype, org, org_repo,like_num, download_num, pipeline_tag,last_modified,sha ").Where("id = ?", id).Find(&repository).Error; err != nil {
 		return nil, err
 	}
 	if len(repository) > 0 {
@@ -84,10 +210,14 @@ func (r *RepositoryDao) RepoAndTagSave(repository *model.Repository, tags []*mod
 	return nil
 }
 
-func (r *RepositoryDao) GetFreeModelRepository(instanceId string) ([]*model.Repository, error) {
+func (r *RepositoryDao) GetFreeRepository(instanceId, org, repo string) ([]*model.Repository, error) {
 	var repositories []*model.Repository
-	err := r.baseData.BizDB.Table("model_file_record t1").Select("distinct t1.datatype, t1.org, t1.repo ").
-		Where("t1.datatype = 'models' and t1.id in (SELECT x.record_id FROM dingo.model_file_process x where x.instance_id = ?) and t1.repo not in (select repo from repository where instance_id = ?)", instanceId, instanceId).Find(&repositories).Error
+	tx := r.baseData.BizDB.Table("model_file_record t1").Select("distinct t1.datatype, t1.org, t1.repo ")
+	if org != "" && repo != "" {
+		tx.Where(fmt.Sprintf(" t1.org = '%s' and t1.repo= '%s'", org, repo))
+	}
+	err := tx.Where("t1.id in (SELECT x.record_id FROM dingo.model_file_process x where x.instance_id = ?) "+
+		"and t1.repo not in (select repo from repository where instance_id = ?)", instanceId, instanceId).Find(&repositories).Error
 	return repositories, err
 }
 
@@ -109,6 +239,9 @@ func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository,
 	}
 	if query.PipelineTag != "" {
 		db.Where("t1.pipeline_tag_id = ?", query.PipelineTag)
+	}
+	if query.Datatype != "" {
+		db.Where("t1.datatype = ?", query.Datatype)
 	}
 	tags := make([]string, 0)
 	if query.Library != "" {
@@ -134,7 +267,7 @@ func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository,
 	}
 	var count int64
 	if err := db.Count(&count).Error; err != nil {
-		zap.S().Error("统计collect数量失败", err)
+		zap.S().Error("统计数量失败", err)
 		return nil, 0, err
 	}
 	offset, pageSize := paginate(query.Page, query.PageSize)
@@ -162,8 +295,8 @@ func paginate(page, pageSize int) (int, int) {
 	return offset, pageSize
 }
 
-func (d *RepositoryDao) DeleteByInstanceIdAndDatatypeAndOrgAndRepo(instanceId string, datatype string, org string, repo string) (int64, error) {
-	result := d.baseData.BizDB.Model(&model.Repository{}).
+func (r *RepositoryDao) DeleteByInstanceIdAndDatatypeAndOrgAndRepo(instanceId string, datatype string, org string, repo string) (int64, error) {
+	result := r.baseData.BizDB.Model(&model.Repository{}).
 		Where("instance_id = ?", instanceId).
 		Where("datatype = ?", datatype).
 		Where("org = ?", org).

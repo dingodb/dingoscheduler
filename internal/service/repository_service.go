@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 
 	"dingoscheduler/internal/dao"
 	"dingoscheduler/internal/data"
@@ -27,148 +28,38 @@ import (
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/config"
-	myerr "dingoscheduler/pkg/error"
+	"dingoscheduler/pkg/consts"
 	"dingoscheduler/pkg/util"
 
-	"github.com/bytedance/sonic"
 	"github.com/labstack/echo/v4"
 	"github.com/young2j/gocopy"
-	"go.uber.org/zap"
 )
 
 type RepositoryService struct {
-	baseData            *data.BaseData
-	dingospeedDao       *dao.DingospeedDao
-	modelFileProcessDao *dao.ModelFileProcessDao
-	repositoryDao       *dao.RepositoryDao
-	organizationDao     *dao.OrganizationDao
-	organizationService *OrganizationService
-	tagDao              *dao.TagDao
-	client              *http.Client
+	baseData        *data.BaseData
+	dingospeedDao   *dao.DingospeedDao
+	repositoryDao   *dao.RepositoryDao
+	organizationDao *dao.OrganizationDao
+	client          *http.Client
+	tagDao          *dao.TagDao
+	persistSync     sync.Mutex
 }
 
 func NewRepositoryService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *dao.ModelFileProcessDao,
-	repositoryDao *dao.RepositoryDao, tagDao *dao.TagDao, baseData *data.BaseData, organizationDao *dao.OrganizationDao, organizationService *OrganizationService) *RepositoryService {
+	repositoryDao *dao.RepositoryDao, baseData *data.BaseData, organizationDao *dao.OrganizationDao,
+	tagDao *dao.TagDao) *RepositoryService {
 	return &RepositoryService{
-		dingospeedDao:       dingospeedDao,
-		repositoryDao:       repositoryDao,
-		modelFileProcessDao: modelFileProcessDao,
-		tagDao:              tagDao,
-		baseData:            baseData,
-		organizationDao:     organizationDao,
-		organizationService: organizationService,
-		client:              &http.Client{},
+		baseData:        baseData,
+		dingospeedDao:   dingospeedDao,
+		repositoryDao:   repositoryDao,
+		organizationDao: organizationDao,
+		tagDao:          tagDao,
+		client:          &http.Client{},
 	}
 }
 
-func (s *RepositoryService) PersistRepo(c echo.Context, repoQuery *query.PersistRepoQuery) error {
-	zap.S().Debugf("PersistRepo instanceId:%s", repoQuery.InstanceIds)
-	var (
-		pipelineMap map[string]string
-		err         error
-	)
-	pipelineMap, err = s.cachePipelineTags()
-	if err != nil {
-		return err
-	}
-	for _, instanceId := range repoQuery.InstanceIds {
-		// 存在下载记录和进度，但【模型】在仓库不存在，没有数据集。
-		freeRepositories, err := s.repositoryDao.GetFreeModelRepository(instanceId)
-		if err != nil {
-			return err
-		}
-		if len(freeRepositories) == 0 {
-			return myerr.New("没有要持久化的仓库。")
-		}
-		for _, repository := range freeRepositories {
-			entity, err := s.dingospeedDao.GetEntity(instanceId, true)
-			if err != nil {
-				return err
-			}
-			if entity == nil {
-				return myerr.New("该区域dingspeed未注册。")
-			}
-			speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
-			orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
-			resp, err := s.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", repoQuery.Token)
-			if err != nil {
-				return err
-			}
-			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTemporaryRedirect {
-				return myerr.NewAppendCode(resp.StatusCode, "RemoteRequestMeta err")
-			}
-			var metaData dto.CommitHfSha
-			if err = sonic.Unmarshal(resp.Body, &metaData); err != nil {
-				zap.S().Errorf("unmarshal error.%v", err)
-				return err
-			}
-			// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
-			isComplete, err := s.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
-			if err != nil {
-				return err
-			}
-			if !isComplete {
-				continue
-			}
-			// 保存组织图片
-			err = s.organizationService.PersistOrgLogo(repository.Org)
-			if err != nil {
-				return err
-			}
-			repo := &model.Repository{
-				InstanceId:    instanceId,
-				Datatype:      repository.Datatype,
-				Org:           repository.Org,
-				Repo:          repository.Repo,
-				OrgRepo:       orgRepo,
-				LikeNum:       metaData.Likes,
-				DownloadNum:   metaData.Downloads,
-				PipelineTagId: metaData.PipelineTag,
-				PipelineTag:   pipelineMap[metaData.PipelineTag],
-				LastModified:  metaData.LastModified,
-				UsedStorage:   metaData.UsedStorage,
-				Sha:           metaData.Sha,
-			}
-			tags := make([]*model.RepositoryTag, 0)
-			for _, tag := range metaData.Tags {
-				tags = append(tags, &model.RepositoryTag{
-					TagId: tag,
-				})
-			}
-			err = s.repositoryDao.RepoAndTagSave(repo, tags)
-			if err != nil {
-				zap.S().Errorf("repository save err.%v", err)
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (s *RepositoryService) cachePipelineTags() (map[string]string, error) {
-	pipelineTags, err := s.tagDao.TagListByCondition(&query.TagQuery{
-		Types: []string{"pipeline_tag"},
-	})
-	if err != nil {
-		return nil, err
-	}
-	pipelineMap := make(map[string]string, 0)
-	for _, item := range pipelineTags {
-		pipelineMap[item.ID] = item.Label
-	}
-	return pipelineMap, nil
-}
-
-func (s *RepositoryService) verifyRepoComplete(metaData *dto.CommitHfSha, instanceId, datatype, org, repo string) (bool, error) {
-	size, err := s.repositoryDao.VerifyRepoComplete(instanceId, datatype, org, repo)
-	if err != nil {
-		return false, err
-	}
-	fileCount := len(metaData.Siblings)
-	if size >= int64(fileCount) {
-		return true, nil
-	}
-	return false, nil
+func (s *RepositoryService) PersistRepo(repoQuery *query.PersistRepoQuery) error {
+	return s.repositoryDao.PersistRepo(repoQuery)
 }
 
 func (s *RepositoryService) RepositoryList(query *query.ModelQuery) ([]*dto.Repository, int64, error) {
@@ -223,7 +114,11 @@ func (s *RepositoryService) RepositoryCardById(c echo.Context, instanceId string
 		if err != nil {
 			return nil, err
 		}
-		forwardURL := fmt.Sprintf("%s/models/%s/resolve/%s/README.md", targetURL.String(), repository.OrgRepo, repository.Sha)
+		prefix := string(consts.RepoTypeModel)
+		if repository.Datatype == string(consts.RepoTypeDataset) {
+			prefix = string(consts.RepoTypeDataset)
+		}
+		forwardURL := fmt.Sprintf("%s/%s/%s/resolve/%s/README.md", targetURL.String(), prefix, repository.OrgRepo, repository.Sha)
 		resp, err := s.requestForward(c, targetURL, forwardURL)
 		if err != nil {
 			return nil, err
@@ -252,7 +147,11 @@ func (s *RepositoryService) RepositoryFilesById(c echo.Context, instanceId strin
 	if err != nil {
 		return err
 	}
-	forwardURL := fmt.Sprintf("%s/api/models/%s/files/%s/", targetURL.String(), repository.OrgRepo, repository.Sha)
+	prefix := string(consts.RepoTypeModel)
+	if repository.Datatype == string(consts.RepoTypeDataset) {
+		prefix = string(consts.RepoTypeDataset)
+	}
+	forwardURL := fmt.Sprintf("%s/api/%s/%s/files/%s/", targetURL.String(), prefix, repository.OrgRepo, repository.Sha)
 	if filePath != "" {
 		forwardURL += filePath
 	}

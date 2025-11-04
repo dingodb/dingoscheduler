@@ -105,9 +105,14 @@ func (t *TagService) TaskTagList(query *query.TagQuery) ([]*dto.GroupedTagDTO, e
 	return result, nil
 }
 
-func (t *TagService) MainTagList() ([]*dto.GroupedByTypeDTO, error) {
+func (t *TagService) MainTagList(datasetStr string) ([]*dto.GroupedByTypeDTO, error) {
 	listCondition := &query.TagQuery{
 		Labels: targetLabels,
+	}
+	if datasetStr == "dataset" {
+		listCondition = &query.TagQuery{
+			Types: []string{"Modalities", "Format"},
+		}
 	}
 
 	tags, err := t.tagDao.TagListByCondition(listCondition)

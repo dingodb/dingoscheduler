@@ -42,14 +42,12 @@ func (d *ModelFileRecordDao) BatchSave(records []model.ModelFileRecord) error {
 		zap.S().Error("开启事务失败: %v", tx.Error)
 		return tx.Error
 	}
-
 	db, err := tx.DB()
 	if err != nil {
 		tx.Rollback()
 		zap.S().Error("从事务获取 DB 实例失败: %v", err)
 		return err
 	}
-
 	for _, record := range records {
 		sql := fmt.Sprintf(
 			"INSERT INTO model_file_record(datatype, org, repo, name, etag, file_size) VALUES ('%s','%s','%s','%s','%s',%d)",
@@ -60,14 +58,12 @@ func (d *ModelFileRecordDao) BatchSave(records []model.ModelFileRecord) error {
 			record.Etag,
 			record.FileSize,
 		)
-
 		result, err := db.Exec(sql)
 		if err != nil {
 			tx.Rollback()
 			zap.S().Error("批量插入失败: %v, SQL: %s", err, sql)
 			return err
 		}
-
 		_, _ = result.LastInsertId()
 	}
 
@@ -76,7 +72,6 @@ func (d *ModelFileRecordDao) BatchSave(records []model.ModelFileRecord) error {
 		zap.S().Fatalf("事务提交失败: %v", err)
 		return err
 	}
-
 	return nil
 }
 
@@ -93,7 +88,7 @@ func SaveRecordBySql(tx *gorm.DB, record *model.ModelFileRecord) (int64, error) 
 	return result.LastInsertId()
 }
 
-func (d *ModelFileRecordDao) GetModelFileRecord(condition *query.ModelFileRecordQuery) (*model.ModelFileRecord, error) {
+func (d *ModelFileRecordDao) FirstModelFileRecord(condition *query.ModelFileRecordQuery) (*model.ModelFileRecord, error) {
 	var records []*model.ModelFileRecord
 	db := d.baseData.BizDB.Model(&model.ModelFileRecord{}).Select("id")
 	if condition.Datatype != "" {
@@ -137,7 +132,6 @@ func (d *ModelFileRecordDao) SaveSchedulerRecord(req *pb.SchedulerFileRequest, p
 			return err
 		}
 		process.RecordID = lastId
-		process.OffsetNum = 0 // 初始
 		processId, err = SaveProcessBySql(tx, process)
 		if err != nil {
 			return err
