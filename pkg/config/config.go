@@ -94,8 +94,9 @@ type Proxy struct {
 }
 
 type Scheduler struct {
-	Port        int32       `json:"port" yaml:"port"`
-	PersistRepo PersistRepo `json:"persistRepo" yaml:"persistRepo"`
+	Port          int32       `json:"port" yaml:"port"`
+	PersistRepo   PersistRepo `json:"persistRepo" yaml:"persistRepo"`
+	GlobalHfToken string      `json:"globalHfToken" yaml:"globalHfToken"`
 }
 
 type PersistRepo struct {
@@ -132,6 +133,10 @@ func (c *Config) GetHost() string {
 
 func (c *Config) EnableMetric() bool {
 	return c.Server.Metrics
+}
+
+func (c *Config) GetGlobalHfToken() string {
+	return c.Scheduler.GlobalHfToken
 }
 
 func (c *Config) SetDefaults() {

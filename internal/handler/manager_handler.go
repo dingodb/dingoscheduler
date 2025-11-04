@@ -24,7 +24,7 @@ func NewManagerHandler(schedulerService *service.SchedulerService, repositorySer
 }
 
 func (handler *ManagerHandler) PersistRepoHandler(c echo.Context) error {
-	job := new(query.PersistRepoQuery)
+	job := new(query.PersistRepoReq)
 	if err := c.Bind(job); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "无效的 JSON 数据",

@@ -57,16 +57,17 @@ func (p *CacheJobService) ListCacheJob(instanceId string, page, pageSize int) ([
 	return cacheJobs, size, nil
 }
 
-func (p *CacheJobService) CreateCacheJob(job *query.CacheJobQuery) (*common.Response, error) {
-	zap.S().Debugf("Cache:%s, %s/%s/%s", job.InstanceId, job.Datatype, job.Org, job.Repo)
-	cacheJob, err := p.cacheJobDao.GetCacheJob(job)
+func (p *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
+	zap.S().Debugf("Cache:%s, %s/%s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
+	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: consts.CacheTypePreheat,
+		Org: createCacheJobReq.Org, Repo: createCacheJobReq.Repo, Datatype: createCacheJobReq.Datatype})
 	if err != nil {
 		return nil, err
 	}
 	if cacheJob != nil {
 		return nil, myerr.New("已存在该任务，不能再创建。")
 	}
-	entity, err := p.dingospeedDao.GetEntity(job.InstanceId, true)
+	entity, err := p.dingospeedDao.GetEntity(createCacheJobReq.InstanceId, true)
 	if err != nil {
 		return nil, err
 	}
@@ -74,25 +75,25 @@ func (p *CacheJobService) CreateCacheJob(job *query.CacheJobQuery) (*common.Resp
 		return nil, myerr.New("该区域dingspeed未注册。")
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
-	b, err := sonic.Marshal(job)
+	b, err := sonic.Marshal(createCacheJobReq)
 	if err != nil {
 		return nil, err
 	}
-	return util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, nil)
+	return util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, util.GetHeaders())
 }
 
-func (p *CacheJobService) StopCacheJob(jobStatus *query.JobStatus) error {
-	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: jobStatus.Id})
+func (p *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
+	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: jobStatusReq.Id})
 	if err != nil {
 		return err
 	}
 	if cacheJob == nil {
-		return myerr.New(fmt.Sprintf("任务不存在，编号:%d", jobStatus.Id))
+		return myerr.New(fmt.Sprintf("任务不存在，编号:%d", jobStatusReq.Id))
 	}
 	if cacheJob.Status != consts.StatusCacheJobIng {
 		return myerr.New(fmt.Sprintf("job is not running, Can't be stopped.%d", cacheJob.Status))
 	}
-	entity, err := p.dingospeedDao.GetEntity(jobStatus.InstanceId, true)
+	entity, err := p.dingospeedDao.GetEntity(jobStatusReq.InstanceId, true)
 	if err != nil {
 		return err
 	}
@@ -100,29 +101,29 @@ func (p *CacheJobService) StopCacheJob(jobStatus *query.JobStatus) error {
 		return myerr.New("该区域dingspeed未注册。")
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
-	b, err := sonic.Marshal(jobStatus)
+	b, err := sonic.Marshal(jobStatusReq)
 	if err != nil {
 		return err
 	}
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/stop", "application/json", b, nil)
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/stop", "application/json", b, util.GetHeaders())
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (p *CacheJobService) ResumeCacheJob(jobStatus *query.JobStatus) error {
-	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: jobStatus.Id})
+func (p *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJobReq) error {
+	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: resumeCacheJobReq.Id})
 	if err != nil {
 		return err
 	}
 	if cacheJob == nil {
-		return myerr.New(fmt.Sprintf("job is not exist.jobId:%d", jobStatus.Id))
+		return myerr.New(fmt.Sprintf("job is not exist.jobId:%d", resumeCacheJobReq.Id))
 	}
 	if cacheJob.Status != consts.StatusCacheJobBreak {
 		return myerr.New("当前状态不可执行该操作。")
 	}
-	entity, err := p.dingospeedDao.GetEntity(jobStatus.InstanceId, true)
+	entity, err := p.dingospeedDao.GetEntity(resumeCacheJobReq.InstanceId, true)
 	if err != nil {
 		return err
 	}
@@ -130,20 +131,19 @@ func (p *CacheJobService) ResumeCacheJob(jobStatus *query.JobStatus) error {
 		return myerr.New("该区域dingspeed未注册。")
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
-	cacheJobQuery := &query.CacheJobQuery{
-		Id:         jobStatus.Id,
+	resumeReq := &query.ResumeCacheJobReq{
+		Id:         resumeCacheJobReq.Id,
 		Type:       cacheJob.Type,
 		InstanceId: cacheJob.InstanceId,
 		Datatype:   cacheJob.Datatype,
 		Org:        cacheJob.Org,
 		Repo:       cacheJob.Repo,
-		Token:      cacheJob.Token,
 	}
-	b, err := sonic.Marshal(cacheJobQuery)
+	b, err := sonic.Marshal(resumeReq)
 	if err != nil {
 		return err
 	}
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/resume", "application/json", b, nil)
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/resume", "application/json", b, util.GetHeaders())
 	if err != nil {
 		return err
 	}

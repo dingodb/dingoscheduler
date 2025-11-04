@@ -29,8 +29,10 @@ import (
 	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/config"
 	"dingoscheduler/pkg/consts"
+	myerr "dingoscheduler/pkg/error"
 	"dingoscheduler/pkg/util"
 
+	"github.com/bytedance/sonic"
 	"github.com/labstack/echo/v4"
 	"github.com/young2j/gocopy"
 )
@@ -58,7 +60,7 @@ func NewRepositoryService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao 
 	}
 }
 
-func (s *RepositoryService) PersistRepo(repoQuery *query.PersistRepoQuery) error {
+func (s *RepositoryService) PersistRepo(repoQuery *query.PersistRepoReq) error {
 	return s.repositoryDao.PersistRepo(repoQuery)
 }
 
@@ -208,4 +210,38 @@ func (s *RepositoryService) requestForward(c echo.Context, targetURL *url.URL, f
 		return nil, fmt.Errorf("转发请求到目标服务失败")
 	}
 	return resp, nil
+}
+
+func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error {
+	repository, err := s.repositoryDao.Get(repoReq.Id)
+	if err != nil {
+		return err
+	}
+	if repository == nil {
+		return myerr.New(fmt.Sprintf("记录不存在。编号：%d", repoReq.Id))
+	}
+	entity, err := s.dingospeedDao.GetEntity(repository.InstanceId, true)
+	if err != nil {
+		return err
+	}
+	if entity == nil {
+		return myerr.New("该区域dingspeed未注册。")
+	}
+	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
+	createCacheJobReq := &query.CreateCacheJobReq{
+		RepositoryId: repository.ID,
+		Type:         consts.CacheTypeMount,
+		InstanceId:   repository.InstanceId,
+		Org:          repository.Org, Repo: repository.Repo,
+		Datatype: repository.Datatype,
+	}
+	b, err := sonic.Marshal(createCacheJobReq)
+	if err != nil {
+		return err
+	}
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, util.GetHeaders())
+	if err != nil {
+		return err
+	}
+	return nil
 }

@@ -9,7 +9,6 @@ import (
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/internal/service"
 	"dingoscheduler/pkg/consts"
-	myerr "dingoscheduler/pkg/error"
 	"dingoscheduler/pkg/util"
 
 	"github.com/labstack/echo/v4"
@@ -28,32 +27,32 @@ func NewCacheJobHandler(cacheJobService *service.CacheJobService) *CacheJobHandl
 }
 
 func (handler *CacheJobHandler) CreateCacheJobHandler(c echo.Context) error {
-	job := new(query.CacheJobQuery)
-	if err := c.Bind(job); err != nil {
+	createCacheJobReq := new(query.CreateCacheJobReq)
+	if err := c.Bind(createCacheJobReq); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "无效的 JSON 数据",
 		})
 	}
-	if _, ok := consts.RepoTypesMapping[job.Datatype]; !ok {
-		zap.S().Errorf("MetaProxyCommon repoType:%s is not exist RepoTypesMapping", job.Datatype)
+	if _, ok := consts.RepoTypesMapping[createCacheJobReq.Datatype]; !ok {
+		zap.S().Errorf("MetaProxyCommon repoType:%s is not exist RepoTypesMapping", createCacheJobReq.Datatype)
 		return util.ErrorPageNotFound(c)
 	}
-	if job.Org == "" && job.Repo == "" {
+	org, repo := util.SplitOrgRepo(createCacheJobReq.OrgRepo)
+	if org == "" && repo == "" {
 		zap.S().Errorf("MetaProxyCommon org and repo is null")
 		return util.ErrorRepoNotFound(c)
 	}
-	resp, err := handler.cacheJobService.CreateCacheJob(job)
+	createCacheJobReq.Org = org
+	createCacheJobReq.Repo = repo
+	resp, err := handler.cacheJobService.CreateCacheJob(createCacheJobReq)
 	if err != nil {
-		if e, ok := err.(myerr.Error); ok {
-			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())
-		}
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	response := c.Response()
 	response.WriteHeader(resp.StatusCode)
 	_, err = io.Copy(response, bytes.NewReader(resp.Body))
 	if err != nil {
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	return nil
 }
@@ -75,10 +74,7 @@ func (handler *CacheJobHandler) ListCacheJobHandler(c echo.Context) error {
 	}
 	cacheJobs, total, err := handler.cacheJobService.ListCacheJob(instanceId, page, pageSize)
 	if err != nil {
-		if e, ok := err.(myerr.Error); ok {
-			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())
-		}
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	cacheJobResps := make([]*dto.CacheJobResp, 0, len(cacheJobs))
 	for _, job := range cacheJobs {
@@ -91,29 +87,29 @@ func (handler *CacheJobHandler) ListCacheJobHandler(c echo.Context) error {
 }
 
 func (handler *CacheJobHandler) StopCacheJobHandler(c echo.Context) error {
-	status := new(query.JobStatus)
-	if err := c.Bind(status); err != nil {
+	jobStatusReq := new(query.JobStatusReq)
+	if err := c.Bind(jobStatusReq); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "无效的 JSON 数据",
 		})
 	}
-	err := handler.cacheJobService.StopCacheJob(status)
+	err := handler.cacheJobService.StopCacheJob(jobStatusReq)
 	if err != nil {
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	return util.NormalResponseData(c, nil)
 }
 
 func (handler *CacheJobHandler) ResumeCacheJobHandler(c echo.Context) error {
-	status := new(query.JobStatus)
-	if err := c.Bind(status); err != nil {
+	resumeCacheJobReq := new(query.ResumeCacheJobReq)
+	if err := c.Bind(resumeCacheJobReq); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "无效的 JSON 数据",
 		})
 	}
-	err := handler.cacheJobService.ResumeCacheJob(status)
+	err := handler.cacheJobService.ResumeCacheJob(resumeCacheJobReq)
 	if err != nil {
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	return util.NormalResponseData(c, nil)
 }

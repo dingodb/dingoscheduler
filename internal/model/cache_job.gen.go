@@ -22,7 +22,6 @@ type CacheJob struct {
 	Commit      string    `gorm:"column:commit;not null" json:"commit"`
 	Status      int32     `gorm:"column:status;not null" json:"status"`
 	ErrorMsg    string    `gorm:"column:error_msg;not null" json:"error_msg"`
-	Token       string    `gorm:"column:token;not null" json:"token"`
 	CreatedAt   time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
 	UpdatedAt   time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
 }

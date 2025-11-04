@@ -10,6 +10,16 @@ type ModelFileRecordQuery struct {
 	StartPos   int64
 }
 
+type CreateCacheJobReq struct {
+	Type         int32  `json:"type"`
+	InstanceId   string `json:"instanceId"`
+	Datatype     string `json:"datatype"`
+	OrgRepo      string `json:"orgRepo"`
+	Org          string `json:"org"`
+	Repo         string `json:"repo"`
+	RepositoryId int64  `json:"repositoryId"`
+}
+
 type CacheJobQuery struct {
 	Id             int64  `json:"id"`
 	Type           int32  `json:"type"`
@@ -17,15 +27,36 @@ type CacheJobQuery struct {
 	Datatype       string `json:"datatype"`
 	Org            string `json:"org"`
 	Repo           string `json:"repo"`
-	Token          string `json:"token"`
 	Page, PageSize int
 }
 
-type JobStatus struct {
+type ResumeCacheJobReq struct {
+	Id         int64  `json:"id"`
+	Type       int32  `json:"type"`
+	InstanceId string `json:"instanceId"`
+	Datatype   string `json:"datatype"`
+	Org        string `json:"org"`
+	Repo       string `json:"repo"`
+}
+
+type JobStatusReq struct {
+	Id         int64  `json:"id"`
+	InstanceId string `json:"instanceId"`
+}
+
+type UpdateJobStatusReq struct {
 	Id         int64  `json:"id"`
 	InstanceId string `json:"instanceId"`
 	Status     int32  `json:"status"`
 	ErrorMsg   string `json:"errorMsg"`
+	Org        string `json:"org"`
+	Repo       string `json:"repo"`
+}
+
+type UpdateMountStatusReq struct {
+	Id       int64  `json:"id"`
+	Status   int32  `json:"status"`
+	ErrorMsg string `json:"errorMsg"`
 }
 
 type UpdateMountCachePidReq struct {
@@ -42,11 +73,12 @@ type PathInfoQuery struct {
 	FileNames []string `json:"fileNames"`
 }
 
-type PersistRepoQuery struct {
+type PersistRepoReq struct {
 	InstanceIds   []string `json:"instanceIds"`
 	Authorization string   `json:"authorization"`
 	Org           string   `json:"org"`
 	Repo          string   `json:"repo"`
+	OffVerify     bool     `json:"verify"`
 }
 
 type ModelQuery struct {
@@ -65,6 +97,10 @@ type ModelQuery struct {
 	Other             string
 	Datatype          string `json:"datatype"`
 	Status            string `json:"status"`
+}
+
+type RepositoryReq struct {
+	Id int64 `json:"id"`
 }
 
 type TagQuery struct {

@@ -30,14 +30,18 @@ func NewSysService(repositoryDao *dao.RepositoryDao) *SysService {
 	return sysSvc
 }
 
+// 同步到repository的仓库数据有如下几种情况：
+// 1.用户通过hf-cli命令下载完成，需定时校验入库；若出现离线未上传，在speed端定时处理本地日志，上报record，process数据，再由本定时器入库repository，需校验。
+// 2.用户在alayanew上下载缓存任务，执行完成后改仓库入库，无需校验；
+// 3.通过接口对外暴露同步，允许用户手动触发，需校验；
 func (s SysService) startPersistRepo() {
 	c := cron.New(cron.WithSeconds())
 	_, err := c.AddFunc(config.SysConfig.GetPersistRepoCron(), func() {
 		ids := config.SysConfig.Scheduler.PersistRepo.InstanceIds
 		instanceIds := strings.Split(ids, ",")
 		if len(instanceIds) > 0 {
-			err := s.repositoryDao.PersistRepo(&query.PersistRepoQuery{
-				InstanceIds: instanceIds,
+			err := s.repositoryDao.PersistRepo(&query.PersistRepoReq{
+				InstanceIds: instanceIds, OffVerify: false,
 			})
 			if err != nil {
 				zap.S().Errorf("cron exec persistRepo err: %v", err)

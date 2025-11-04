@@ -21,6 +21,8 @@ type Repository struct {
 	LastModified  string    `gorm:"column:last_modified;not null" json:"last_modified"`
 	UsedStorage   int64     `gorm:"column:used_storage;" json:"used_storage"`
 	Sha           string    `gorm:"column:sha;not null" json:"sha"`
+	Status        int32     `gorm:"column:status;not null" json:"status"`
+	ErrorMsg      string    `gorm:"column:error_msg;not null" json:"error_msg"`
 	CreatedAt     time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
 	UpdatedAt     time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
 }

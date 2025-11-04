@@ -52,8 +52,8 @@ func NewRepositoryDao(data *data.BaseData, repositoryTagDao *RepositoryTagDao, t
 	}
 }
 
-func (r *RepositoryDao) PersistRepo(repoQuery *query.PersistRepoQuery) error {
-	zap.S().Debugf("PersistRepo instanceId:%s", repoQuery.InstanceIds)
+func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error {
+	zap.S().Debugf("PersistRepo instanceId:%s， org:%s, repo:%s", persistRepoReq.InstanceIds, persistRepoReq.Org, persistRepoReq.Repo)
 	var (
 		pipelineMap map[string]string
 		err         error
@@ -64,9 +64,9 @@ func (r *RepositoryDao) PersistRepo(repoQuery *query.PersistRepoQuery) error {
 	if err != nil {
 		return err
 	}
-	for _, instanceId := range repoQuery.InstanceIds {
+	for _, instanceId := range persistRepoReq.InstanceIds {
 		// 存在下载记录和进度，但【模型】在仓库不存在，没有数据集。
-		freeRepositories, err := r.GetFreeRepository(instanceId, repoQuery.Org, repoQuery.Repo)
+		freeRepositories, err := r.GetFreeRepository(instanceId, persistRepoReq.Org, persistRepoReq.Repo)
 		if err != nil {
 			return err
 		}
@@ -83,25 +83,27 @@ func (r *RepositoryDao) PersistRepo(repoQuery *query.PersistRepoQuery) error {
 			}
 			speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 			orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
-			resp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", repoQuery.Authorization)
+			metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", persistRepoReq.Authorization)
 			if err != nil {
 				return err
 			}
-			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTemporaryRedirect {
-				return myerr.NewAppendCode(resp.StatusCode, "RemoteRequestMeta err")
+			if metaResp.StatusCode != http.StatusOK && metaResp.StatusCode != http.StatusTemporaryRedirect {
+				return myerr.NewAppendCode(metaResp.StatusCode, "RemoteRequestMeta err")
 			}
 			var metaData dto.CommitHfSha
-			if err = sonic.Unmarshal(resp.Body, &metaData); err != nil {
+			if err = sonic.Unmarshal(metaResp.Body, &metaData); err != nil {
 				zap.S().Errorf("unmarshal error.%v", err)
 				return err
 			}
-			// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
-			isComplete, err := r.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
-			if err != nil {
-				return err
-			}
-			if !isComplete {
-				continue
+			if !persistRepoReq.OffVerify {
+				// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
+				isComplete, err := r.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
+				if err != nil {
+					return err
+				}
+				if !isComplete {
+					continue
+				}
 			}
 			// 保存组织图片
 			err = r.organizationDao.PersistOrgLogo(repository.Org)
@@ -181,7 +183,7 @@ func (r *RepositoryDao) SaveBySql(tx *gorm.DB, repo *model.Repository) (int64, e
 
 func (r *RepositoryDao) Get(id int64) (*model.Repository, error) {
 	var repository []*model.Repository
-	if err := r.baseData.BizDB.Model(&model.Repository{}).Select("id, datatype, org, org_repo,like_num, download_num, pipeline_tag,last_modified,sha ").Where("id = ?", id).Find(&repository).Error; err != nil {
+	if err := r.baseData.BizDB.Model(&model.Repository{}).Select("id, instance_id, datatype, org, repo, org_repo,like_num, download_num, pipeline_tag,last_modified,sha ").Where("id = ?", id).Find(&repository).Error; err != nil {
 		return nil, err
 	}
 	if len(repository) > 0 {
@@ -283,7 +285,6 @@ func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository,
 	}
 	err := db.Find(&repositories).Error
 	return repositories, count, err
-
 }
 
 func paginate(page, pageSize int) (int, int) {
@@ -313,4 +314,25 @@ func (r *RepositoryDao) DeleteByInstanceIdAndDatatypeAndOrgAndRepo(instanceId st
 	}
 
 	return result.RowsAffected, nil
+}
+
+func (r *RepositoryDao) UpdateRepositoryMountStatus(statusReq *query.UpdateMountStatusReq) error {
+	var (
+		msgStr []byte
+		err    error
+	)
+	if statusReq.ErrorMsg != "" {
+		msg := make(map[string]string, 0)
+		msg["msg"] = statusReq.ErrorMsg
+		msgStr, err = sonic.Marshal(msg)
+		if err != nil {
+			return err
+		}
+	}
+	sql := fmt.Sprintf("UPDATE repository SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
+		statusReq.Status, string(msgStr), util.GetCurrentTimeStr(), statusReq.Id)
+	if err := r.baseData.BizDB.Exec(sql).Error; err != nil {
+		return err
+	}
+	return nil
 }

@@ -109,28 +109,35 @@ func (d *CacheJobDao) RemoteRequestPathsInfo(domain, dataType, org, repo, revisi
 	return ret, nil
 }
 
-func (d *CacheJobDao) UpdateStatus(preheat *query.JobStatus) error {
-	msg := make(map[string]string, 0)
-	msg["msg"] = preheat.ErrorMsg
-	marshal, err := sonic.Marshal(msg)
-	if err != nil {
-		return err
+func (d *CacheJobDao) UpdateStatus(statusReq *query.UpdateJobStatusReq) error {
+	var (
+		msgStr []byte
+		err    error
+	)
+	if statusReq.ErrorMsg != "" {
+		msg := make(map[string]string, 0)
+		msg["msg"] = statusReq.ErrorMsg
+		msgStr, err = sonic.Marshal(msg)
+		if err != nil {
+			return err
+		}
 	}
 	sql := fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
-		preheat.Status, string(marshal), util.GetCurrentTimeStr(), preheat.Id)
+		statusReq.Status, string(msgStr), util.GetCurrentTimeStr(), statusReq.Id)
 	if err := d.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *CacheJobDao) UpdateStatusAndRepo(preheat *query.JobStatus) error {
-	err := d.UpdateStatus(preheat)
+func (d *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq) error {
+	err := d.UpdateStatus(jobStatusReq)
 	if err != nil {
 		return err
 	}
-	if preheat.Status == consts.StatusCacheJobComplete {
-		err = d.repositoryDao.PersistRepo(&query.PersistRepoQuery{InstanceIds: []string{preheat.InstanceId}})
+	if jobStatusReq.Status == consts.StatusCacheJobComplete {
+		err = d.repositoryDao.PersistRepo(&query.PersistRepoReq{InstanceIds: []string{jobStatusReq.InstanceId},
+			Org: jobStatusReq.Org, Repo: jobStatusReq.Repo, OffVerify: true})
 		if err != nil {
 			return err
 		}

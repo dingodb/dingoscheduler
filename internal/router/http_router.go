@@ -23,21 +23,23 @@ import (
 )
 
 type HttpRouter struct {
-	echo            *echo.Echo
-	sysHandler      *handler.SysHandler
-	managerHandler  *handler.ManagerHandler
-	alayanewHandler *handler.AlayanewHandler
-	cacheJobHandler *handler.CacheJobHandler
+	echo              *echo.Echo
+	sysHandler        *handler.SysHandler
+	managerHandler    *handler.ManagerHandler
+	repositoryHandler *handler.RepositoryHandler
+	tagHandler        *handler.TagHandler
+	cacheJobHandler   *handler.CacheJobHandler
 }
 
 func NewHttpRouter(echo *echo.Echo, managerHandler *handler.ManagerHandler, sysHandler *handler.SysHandler,
-	alayanewHandler *handler.AlayanewHandler, cacheJobHandler *handler.CacheJobHandler) *HttpRouter {
+	repositoryHandler *handler.RepositoryHandler, tagHandler *handler.TagHandler, cacheJobHandler *handler.CacheJobHandler) *HttpRouter {
 	r := &HttpRouter{
-		echo:            echo,
-		sysHandler:      sysHandler,
-		managerHandler:  managerHandler,
-		alayanewHandler: alayanewHandler,
-		cacheJobHandler: cacheJobHandler,
+		echo:              echo,
+		sysHandler:        sysHandler,
+		managerHandler:    managerHandler,
+		repositoryHandler: repositoryHandler,
+		tagHandler:        tagHandler,
+		cacheJobHandler:   cacheJobHandler,
 	}
 	r.initRouter()
 	return r
@@ -54,19 +56,21 @@ func (r *HttpRouter) initRouter() {
 		r.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
 	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler) // 持久化仓库
-	r.alayaNewRouter()                                                   // alayanew接口
+	r.repositoryRouter()                                                 // repository接口
 	r.cacheJobRouter()                                                   // 模型缓存
 }
 
-func (r *HttpRouter) alayaNewRouter() {
-	r.echo.GET("/api/v1/repositories", r.alayanewHandler.RepositoriesHandler)                                // 仓库列表
-	r.echo.GET("/api/v1/repository/:id", r.alayanewHandler.RepositoryInfoHandler)                            // 单个仓库信息描述
-	r.echo.GET("/api/v1/repository/card/:aidcCode/:id", r.alayanewHandler.RepositoryCardHandler)             // 仓库介绍
-	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/", r.alayanewHandler.RepositoryFilesHandler)          // 仓库文件目录
-	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/:filePath", r.alayanewHandler.RepositoryFilesHandler) // 仓库文件目录
-	r.echo.GET("/api/v1/tags", r.alayanewHandler.TagHandler)
-	r.echo.GET("/api/v1/task_tags", r.alayanewHandler.TaskTagHandler)
-	r.echo.GET("/api/v1/main_tags", r.alayanewHandler.MainTagHandler)
+func (r *HttpRouter) repositoryRouter() {
+	r.echo.GET("/api/v1/repositories", r.repositoryHandler.RepositoriesHandler)                                // 仓库列表
+	r.echo.GET("/api/v1/repository/:id", r.repositoryHandler.RepositoryInfoHandler)                            // 单个仓库信息描述
+	r.echo.GET("/api/v1/repository/card/:aidcCode/:id", r.repositoryHandler.RepositoryCardHandler)             // 仓库介绍
+	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/", r.repositoryHandler.RepositoryFilesHandler)          // 仓库文件目录
+	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/:filePath", r.repositoryHandler.RepositoryFilesHandler) // 仓库文件目录
+	r.echo.POST("/api/v1/repositories/mount", r.repositoryHandler.MountRepositoryHandler)                      // 挂载缓存
+
+	r.echo.GET("/api/v1/tags", r.tagHandler.TagHandler)
+	r.echo.GET("/api/v1/task_tags", r.tagHandler.TaskTagHandler)
+	r.echo.GET("/api/v1/main_tags", r.tagHandler.MainTagHandler)
 }
 
 func (r *HttpRouter) cacheJobRouter() {

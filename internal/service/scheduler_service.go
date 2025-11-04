@@ -393,7 +393,6 @@ func (s *SchedulerService) CreateCacheJob(ctx context.Context, req *pb.CreateCac
 		Datatype:    req.Datatype,
 		Org:         req.Org,
 		Repo:        req.Repo,
-		Token:       req.Token,
 		UsedStorage: req.UsedStorage,
 		Commit:      req.Commit,
 		Status:      req.Status,
@@ -408,11 +407,25 @@ func (s *SchedulerService) CreateCacheJob(ctx context.Context, req *pb.CreateCac
 }
 
 func (s *SchedulerService) UpdateCacheJobStatus(ctx context.Context, req *pb.UpdateCacheJobStatusReq) (*emptypb.Empty, error) {
-	err := s.cacheJobDao.UpdateStatusAndRepo(&query.JobStatus{
+	err := s.cacheJobDao.UpdateStatusAndRepo(&query.UpdateJobStatusReq{
 		Id:         req.Id,
 		InstanceId: req.InstanceId,
 		Status:     req.Status,
 		ErrorMsg:   req.ErrorMsg,
+		Org:        req.Org,
+		Repo:       req.Repo,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (s *SchedulerService) UpdateRepositoryMountStatus(ctx context.Context, req *pb.UpdateRepositoryMountStatusReq) (*emptypb.Empty, error) {
+	err := s.repositoryDao.UpdateRepositoryMountStatus(&query.UpdateMountStatusReq{
+		Id:       req.Id,
+		Status:   req.Status,
+		ErrorMsg: req.ErrorMsg,
 	})
 	if err != nil {
 		return nil, err
