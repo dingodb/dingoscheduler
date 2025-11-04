@@ -12,6 +12,7 @@ type ModelFileRecordQuery struct {
 
 type CreateCacheJobReq struct {
 	Type         int32  `json:"type"`
+	AidcCode     string `json:"aidcCode"`
 	InstanceId   string `json:"instanceId"`
 	Datatype     string `json:"datatype"`
 	OrgRepo      string `json:"orgRepo"`
@@ -33,6 +34,7 @@ type CacheJobQuery struct {
 type ResumeCacheJobReq struct {
 	Id         int64  `json:"id"`
 	Type       int32  `json:"type"`
+	AidcCode   string `json:"aidcCode"`
 	InstanceId string `json:"instanceId"`
 	Datatype   string `json:"datatype"`
 	Org        string `json:"org"`
@@ -41,6 +43,7 @@ type ResumeCacheJobReq struct {
 
 type JobStatusReq struct {
 	Id         int64  `json:"id"`
+	AidcCode   string `json:"aidcCode"`
 	InstanceId string `json:"instanceId"`
 }
 

@@ -33,6 +33,11 @@ func (handler *CacheJobHandler) CreateCacheJobHandler(c echo.Context) error {
 			"error": "无效的 JSON 数据",
 		})
 	}
+	instanceId, err := GetInstanceId(createCacheJobReq.AidcCode)
+	if err != nil {
+		return util.ErrorRequestParam(c)
+	}
+	createCacheJobReq.InstanceId = instanceId
 	if _, ok := consts.RepoTypesMapping[createCacheJobReq.Datatype]; !ok {
 		zap.S().Errorf("MetaProxyCommon repoType:%s is not exist RepoTypesMapping", createCacheJobReq.Datatype)
 		return util.ErrorPageNotFound(c)
@@ -94,7 +99,12 @@ func (handler *CacheJobHandler) StopCacheJobHandler(c echo.Context) error {
 			"error": "无效的 JSON 数据",
 		})
 	}
-	err := handler.cacheJobService.StopCacheJob(jobStatusReq)
+	instanceId, err := GetInstanceId(jobStatusReq.AidcCode)
+	if err != nil {
+		return util.ErrorRequestParam(c)
+	}
+	jobStatusReq.InstanceId = instanceId
+	err = handler.cacheJobService.StopCacheJob(jobStatusReq)
 	if err != nil {
 		return util.ResponseError(c, err)
 	}
@@ -108,7 +118,12 @@ func (handler *CacheJobHandler) ResumeCacheJobHandler(c echo.Context) error {
 			"error": "无效的 JSON 数据",
 		})
 	}
-	err := handler.cacheJobService.ResumeCacheJob(resumeCacheJobReq)
+	instanceId, err := GetInstanceId(resumeCacheJobReq.AidcCode)
+	if err != nil {
+		return util.ErrorRequestParam(c)
+	}
+	resumeCacheJobReq.InstanceId = instanceId
+	err = handler.cacheJobService.ResumeCacheJob(resumeCacheJobReq)
 	if err != nil {
 		return util.ResponseError(c, err)
 	}

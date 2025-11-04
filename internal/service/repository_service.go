@@ -220,6 +220,9 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if repository == nil {
 		return myerr.New(fmt.Sprintf("记录不存在。编号：%d", repoReq.Id))
 	}
+	if repository.Status == consts.StatusCacheJobIng || repository.Status == consts.StatusCacheJobComplete {
+		return myerr.New("当前状态不可执行该操作。")
+	}
 	entity, err := s.dingospeedDao.GetEntity(repository.InstanceId, true)
 	if err != nil {
 		return err
