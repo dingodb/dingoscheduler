@@ -38,12 +38,13 @@ func (handler *CacheJobHandler) CreateCacheJobHandler(c echo.Context) error {
 		return util.ErrorPageNotFound(c)
 	}
 	org, repo := util.SplitOrgRepo(createCacheJobReq.OrgRepo)
-	if org == "" && repo == "" {
+	if org == "" || repo == "" {
 		zap.S().Errorf("MetaProxyCommon org and repo is null")
 		return util.ErrorRepoNotFound(c)
 	}
 	createCacheJobReq.Org = org
 	createCacheJobReq.Repo = repo
+	createCacheJobReq.Type = consts.CacheTypePreheat
 	resp, err := handler.cacheJobService.CreateCacheJob(createCacheJobReq)
 	if err != nil {
 		return util.ResponseError(c, err)

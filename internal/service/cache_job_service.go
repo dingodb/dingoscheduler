@@ -58,8 +58,8 @@ func (p *CacheJobService) ListCacheJob(instanceId string, page, pageSize int) ([
 }
 
 func (p *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
-	zap.S().Debugf("Cache:%s, %s/%s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
-	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: consts.CacheTypePreheat,
+	zap.S().Debugf("Cache:%s, %s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
+	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: createCacheJobReq.Type,
 		Org: createCacheJobReq.Org, Repo: createCacheJobReq.Repo, Datatype: createCacheJobReq.Datatype})
 	if err != nil {
 		return nil, err
