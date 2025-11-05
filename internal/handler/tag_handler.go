@@ -59,7 +59,7 @@ func (handler *TagHandler) TagHandler(c echo.Context) error {
 		if e, ok := err.(myerr.Error); ok {
 			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())
 		}
-		return util.ErrorProxyError(c)
+		return util.ResponseError(c)
 	}
 	return util.ResponseData(c, tags)
 }
@@ -72,7 +72,7 @@ func (handler *TagHandler) TaskTagHandler(c echo.Context) error {
 		if e, ok := err.(myerr.Error); ok {
 			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())
 		}
-		return util.ErrorProxyError(c)
+		return util.ResponseError(c)
 	}
 	return util.ResponseData(c, taskTags)
 }
@@ -84,7 +84,7 @@ func (handler *TagHandler) MainTagHandler(c echo.Context) error {
 		if e, ok := err.(myerr.Error); ok {
 			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())
 		}
-		return util.ErrorProxyError(c)
+		return util.ResponseError(c)
 	}
 	return util.ResponseData(c, mainTags)
 }

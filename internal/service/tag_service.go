@@ -72,7 +72,7 @@ func (t *TagService) TagListByCondition(query *query.TagQuery) ([]*dto.Tag, erro
 		return nil, err
 	}
 
-	if query.DataType == "dataset" {
+	if query.DataType == "datasets" {
 		for _, tag := range tags {
 			tag.Type = tag.Type[5:]
 		}
@@ -115,7 +115,7 @@ func (t *TagService) MainTagList(datasetStr string) ([]*dto.GroupedByTypeDTO, er
 	listCondition := &query.TagQuery{
 		Labels: targetLabels,
 	}
-	if datasetStr == "dataset" {
+	if datasetStr == "datasets" {
 		listCondition = &query.TagQuery{
 			Types: []string{"Modalities", "Format"},
 		}

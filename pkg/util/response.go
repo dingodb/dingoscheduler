@@ -35,9 +35,31 @@ func ErrorRepoNotFound(ctx echo.Context) error {
 	return Response(ctx, http.StatusNotFound, headers, content)
 }
 
+func ErrorRepoNotFoundCN(ctx echo.Context) error {
+	content := map[string]string{
+		"error": "无效的模型或数据集输入",
+	}
+	headers := map[string]string{
+		"x-error-code":    "RepoNotFound",
+		"x-error-message": "Repository not found",
+	}
+	return Response(ctx, http.StatusNotFound, headers, content)
+}
+
 func ErrorRequestParam(ctx echo.Context) error {
 	content := map[string]string{
 		"error": "Request param error",
+	}
+	headers := map[string]string{
+		"x-error-code":    "Request param error",
+		"x-error-message": "Request param error",
+	}
+	return Response(ctx, http.StatusBadRequest, headers, content)
+}
+
+func ErrorRequestParamCN(ctx echo.Context) error {
+	content := map[string]string{
+		"error": "参数输入错误",
 	}
 	headers := map[string]string{
 		"x-error-code":    "Request param error",

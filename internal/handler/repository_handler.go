@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -35,23 +34,23 @@ func (handler *RepositoryHandler) RepositoriesHandler(c echo.Context) error {
 	aidcCode := c.QueryParam("aidcCode")
 	instanceId, err := GetInstanceId(aidcCode)
 	if err != nil {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	if page, err = extractPageParam(c, "page"); err != nil {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	if pageSize, err = extractPageParam(c, "pageSize"); err != nil {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	sortBy := extractStringParam(c, "sort", "last_modified")
 	sortBy = strings.ToLower(sortBy)
 	if sortBy != "download_num" && sortBy != "last_modified" {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	order := extractStringParam(c, "order", "desc")
 	order = strings.ToLower(order)
 	if order != "asc" && order != "desc" {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	license := c.QueryParam("license")
 	library := c.QueryParam("library")
@@ -100,7 +99,7 @@ func extractPageParam(c echo.Context, pageParamName string) (int, error) {
 	page, err := strconv.Atoi(pageStr)
 	if err != nil {
 		zap.S().Errorf("param conv err.%v", err)
-		return 0, util.ErrorRequestParam(c)
+		return 0, util.ErrorRequestParamCN(c)
 	}
 	return page, nil
 }
@@ -130,7 +129,7 @@ func (handler *RepositoryHandler) RepositoryCardHandler(c echo.Context) error {
 	aidcCode := c.Param("aidcCode")
 	instanceId, err := GetInstanceId(aidcCode)
 	if err != nil {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	id := util.Atoi64(c.Param("id"))
 	resp, err := handler.repositoryService.RepositoryCardById(c, instanceId, id)
@@ -153,7 +152,7 @@ func (handler *RepositoryHandler) RepositoryFilesHandler(c echo.Context) error {
 	aidcCode := c.Param("aidcCode")
 	instanceId, err := GetInstanceId(aidcCode)
 	if err != nil {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	id := util.Atoi64(c.Param("id"))
 	filePath := c.Param("filePath")
@@ -168,9 +167,7 @@ func (handler *RepositoryHandler) RepositoryFilesHandler(c echo.Context) error {
 func (handler *RepositoryHandler) MountRepositoryHandler(c echo.Context) error {
 	repositoryReq := new(query.RepositoryReq)
 	if err := c.Bind(repositoryReq); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "无效的 JSON 数据",
-		})
+		return util.ErrorRequestParamCN(c)
 	}
 	err := handler.repositoryService.MountRepository(repositoryReq)
 	if err != nil {
