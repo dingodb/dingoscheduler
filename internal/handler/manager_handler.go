@@ -3,7 +3,6 @@ package handler
 import (
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/internal/service"
-	myerr "dingoscheduler/pkg/error"
 	"dingoscheduler/pkg/util"
 
 	"github.com/labstack/echo/v4"
@@ -28,10 +27,7 @@ func (handler *ManagerHandler) PersistRepoHandler(c echo.Context) error {
 	}
 	err := handler.repositoryService.PersistRepo(job)
 	if err != nil {
-		if e, ok := err.(myerr.Error); ok {
-			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())
-		}
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	return util.NormalResponseData(c, nil)
 }

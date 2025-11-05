@@ -58,9 +58,11 @@ const (
 	CacheTypePreheat = 1
 	CacheTypeMount   = 2
 
+	StatusCacheJobDefault  = 0
 	StatusCacheJobIng      = 1
 	StatusCacheJobBreak    = 2
 	StatusCacheJobComplete = 3
+	StatusCacheJobStopping = 4
 )
 
 const (

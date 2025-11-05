@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	myerr "dingoscheduler/pkg/error"
+
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
 	"go.uber.org/zap"
@@ -21,7 +23,7 @@ import (
 func FetchAvatarURL(orgName string) (string, error) {
 	orgUri := fmt.Sprintf("/%s", orgName)
 	zap.S().Debugf("开始请求Hugging Face组织页面：%s", orgUri) // 调试级日志，记录请求地址
-	headers := make(map[string]string)
+	headers := GetHeaders()
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 	headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
 	resp, err := Get(orgUri, headers)
@@ -29,13 +31,12 @@ func FetchAvatarURL(orgName string) (string, error) {
 		return "", err
 	}
 	if resp.StatusCode != http.StatusOK {
-		zap.S().Errorf("组织页面（%s）响应异常，状态码：%d", orgUri, resp.StatusCode)
-		return "", fmt.Errorf("组织页面状态异常（%s）：状态码 %d", orgUri, resp.StatusCode)
+		return "", myerr.New(fmt.Sprintf("组织页面状态异常（%s）：状态码 %d", orgName, resp.StatusCode))
 	}
 	reader := bytes.NewReader(resp.Body)
 	doc, err := html.Parse(reader)
 	if err != nil {
-		return "", fmt.Errorf("解析HTML页面（%s）失败：%w", orgUri, err)
+		return "", myerr.New(fmt.Sprintf("解析HTML页面（%s）失败：%v", orgUri, err))
 	}
 
 	var avatarURL string
@@ -44,7 +45,6 @@ func FetchAvatarURL(orgName string) (string, error) {
 		if avatarURL != "" {
 			return // 已找到，提前退出
 		}
-
 		if n.Type == html.ElementNode && n.Data == "div" {
 			for _, attr := range n.Attr {
 				if attr.Key == "class" &&

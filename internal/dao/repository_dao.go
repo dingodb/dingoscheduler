@@ -73,17 +73,17 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 		if len(freeRepositories) == 0 {
 			return myerr.New("没有要持久化的仓库。")
 		}
+		entity, err := r.dingospeedDao.GetEntity(instanceId, true)
+		if err != nil {
+			return err
+		}
+		if entity == nil {
+			return myerr.New("该区域dingospeed未注册。")
+		}
+		speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 		for _, repository := range freeRepositories {
-			entity, err := r.dingospeedDao.GetEntity(instanceId, true)
-			if err != nil {
-				return err
-			}
-			if entity == nil {
-				return myerr.New("该区域dingspeed未注册。")
-			}
-			speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 			orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
-			metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", persistRepoReq.Authorization)
+			metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", util.GetHeaders())
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 			// 保存组织图片
 			err = r.organizationDao.PersistOrgLogo(repository.Org)
 			if err != nil {
-				return err
+				zap.S().Errorf("PersistOrgLogo err.org:%s, %v", repository.Org, err)
 			}
 			repo := &model.Repository{
 				InstanceId:    instanceId,
@@ -232,7 +232,7 @@ func (r *RepositoryDao) VerifyRepoComplete(instanceId, datatype, org, repo strin
 
 func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository, int64, error) {
 	repositories := make([]*model.Repository, 0)
-	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.org, t1.org_repo, t1.like_num, t1.download_num, t1.pipeline_tag, t1.last_modified, t1.used_storage, t1.status")
+	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.org, t1.org_repo, t1.like_num, t1.download_num, t1.sha, t1.pipeline_tag, t1.last_modified, t1.used_storage, t1.status")
 	if query.InstanceId != "" {
 		db.Where("t1.instance_id = ?", query.InstanceId)
 	}

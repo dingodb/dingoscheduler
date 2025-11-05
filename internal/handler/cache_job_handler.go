@@ -30,6 +30,11 @@ func (handler *CacheJobHandler) CreateCacheJobHandler(c echo.Context) error {
 	if err := c.Bind(createCacheJobReq); err != nil {
 		return util.ErrorRequestParamCN(c)
 	}
+	instanceId, err := GetInstanceId(createCacheJobReq.AidcCode)
+	if err != nil {
+		return util.ErrorRequestParam(c)
+	}
+	createCacheJobReq.InstanceId = instanceId
 	if _, ok := consts.RepoTypesMapping[createCacheJobReq.Datatype]; !ok {
 		zap.S().Errorf("MetaProxyCommon repoType:%s is not exist RepoTypesMapping", createCacheJobReq.Datatype)
 		return util.ErrorRequestParamCN(c)
@@ -70,7 +75,8 @@ func (handler *CacheJobHandler) ListCacheJobHandler(c echo.Context) error {
 	if pageSize, err = extractPageParam(c, "pageSize"); err != nil {
 		return util.ErrorRequestParamCN(c)
 	}
-	cacheJobs, total, err := handler.cacheJobService.ListCacheJob(instanceId, page, pageSize)
+	datatype := c.QueryParam("datatype")
+	cacheJobs, total, err := handler.cacheJobService.ListCacheJob(instanceId, datatype, page, pageSize)
 	if err != nil {
 		return util.ResponseError(c, err)
 	}
@@ -89,7 +95,12 @@ func (handler *CacheJobHandler) StopCacheJobHandler(c echo.Context) error {
 	if err := c.Bind(jobStatusReq); err != nil {
 		return util.ErrorRequestParamCN(c)
 	}
-	err := handler.cacheJobService.StopCacheJob(jobStatusReq)
+	instanceId, err := GetInstanceId(jobStatusReq.AidcCode)
+	if err != nil {
+		return util.ErrorRequestParam(c)
+	}
+	jobStatusReq.InstanceId = instanceId
+	err = handler.cacheJobService.StopCacheJob(jobStatusReq)
 	if err != nil {
 		return util.ResponseError(c, err)
 	}
@@ -101,7 +112,12 @@ func (handler *CacheJobHandler) ResumeCacheJobHandler(c echo.Context) error {
 	if err := c.Bind(resumeCacheJobReq); err != nil {
 		return util.ErrorRequestParamCN(c)
 	}
-	err := handler.cacheJobService.ResumeCacheJob(resumeCacheJobReq)
+	instanceId, err := GetInstanceId(resumeCacheJobReq.AidcCode)
+	if err != nil {
+		return util.ErrorRequestParam(c)
+	}
+	resumeCacheJobReq.InstanceId = instanceId
+	err = handler.cacheJobService.ResumeCacheJob(resumeCacheJobReq)
 	if err != nil {
 		return util.ResponseError(c, err)
 	}

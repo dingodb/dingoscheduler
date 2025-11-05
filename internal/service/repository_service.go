@@ -35,6 +35,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/labstack/echo/v4"
 	"github.com/young2j/gocopy"
+	"go.uber.org/zap"
 )
 
 type RepositoryService struct {
@@ -47,7 +48,7 @@ type RepositoryService struct {
 	persistSync     sync.Mutex
 }
 
-func NewRepositoryService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *dao.ModelFileProcessDao,
+func NewRepositoryService(dingospeedDao *dao.DingospeedDao,
 	repositoryDao *dao.RepositoryDao, baseData *data.BaseData, organizationDao *dao.OrganizationDao,
 	tagDao *dao.TagDao) *RepositoryService {
 	return &RepositoryService{
@@ -76,7 +77,9 @@ func (s *RepositoryService) RepositoryList(query *query.ModelQuery) ([]*dto.Repo
 		if icon, err := s.organizationDao.GetOrganization(repo.Org); err != nil {
 			return nil, 0, err
 		} else {
-			repo.Icon = fmt.Sprintf("%s%s", config.SysConfig.Oss.Path, icon)
+			if icon != "" {
+				repo.Icon = fmt.Sprintf("%s%s", config.SysConfig.Oss.Path, icon)
+			}
 		}
 		repos = append(repos, &repo)
 	}
@@ -220,6 +223,9 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if repository == nil {
 		return myerr.New(fmt.Sprintf("记录不存在。编号：%d", repoReq.Id))
 	}
+	if repository.Status == consts.StatusCacheJobIng || repository.Status == consts.StatusCacheJobComplete {
+		return myerr.New("当前状态不可执行该操作。")
+	}
 	entity, err := s.dingospeedDao.GetEntity(repository.InstanceId, true)
 	if err != nil {
 		return err
@@ -228,6 +234,13 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 		return myerr.New("该区域dingspeed未注册。")
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
+	if err = s.repositoryDao.UpdateRepositoryMountStatus(&query.UpdateMountStatusReq{
+		Id:     repository.ID,
+		Status: consts.StatusCacheJobIng,
+	}); err != nil {
+		zap.S().Errorf("UpdateRepositoryMountStatus err.%v", err)
+		return myerr.New("更新状态错误。")
+	}
 	createCacheJobReq := &query.CreateCacheJobReq{
 		RepositoryId: repository.ID,
 		Type:         consts.CacheTypeMount,

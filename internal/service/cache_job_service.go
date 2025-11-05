@@ -44,10 +44,11 @@ func NewCacheJobService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *d
 	}
 }
 
-func (p *CacheJobService) ListCacheJob(instanceId string, page, pageSize int) ([]*model.CacheJob, int64, error) {
+func (p *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSize int) ([]*model.CacheJob, int64, error) {
 	cacheJobs, size, err := p.cacheJobDao.ListCacheJob(&query.CacheJobQuery{
 		Type:       consts.CacheTypePreheat,
 		InstanceId: instanceId,
+		Datatype:   datatype,
 		Page:       page,
 		PageSize:   pageSize,
 	})
@@ -58,7 +59,7 @@ func (p *CacheJobService) ListCacheJob(instanceId string, page, pageSize int) ([
 }
 
 func (p *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
-	zap.S().Debugf("Cache:%s, %s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
+	zap.S().Debugf("Cache instanceId:%s, %s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
 	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: createCacheJobReq.Type,
 		Org: createCacheJobReq.Org, Repo: createCacheJobReq.Repo, Datatype: createCacheJobReq.Datatype})
 	if err != nil {
@@ -99,6 +100,10 @@ func (p *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 	}
 	if entity == nil {
 		return myerr.New("该区域dingspeed未注册。")
+	}
+	err = p.cacheJobDao.UpdateCacheStatus(&query.UpdateJobStatusReq{Id: jobStatusReq.Id, Status: consts.StatusCacheJobStopping})
+	if err != nil {
+		return err
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 	b, err := sonic.Marshal(jobStatusReq)

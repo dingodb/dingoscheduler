@@ -40,16 +40,16 @@ func NewCacheJobDao(data *data.BaseData, repositoryDao *RepositoryDao) *CacheJob
 	}
 }
 
-func (d *CacheJobDao) Save(preheatJob *model.CacheJob) error {
-	if err := d.baseData.BizDB.Model(&model.CacheJob{}).Save(preheatJob).Error; err != nil {
+func (c *CacheJobDao) Save(preheatJob *model.CacheJob) error {
+	if err := c.baseData.BizDB.Model(&model.CacheJob{}).Save(preheatJob).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *CacheJobDao) GetCacheJob(condition *query.CacheJobQuery) (*model.CacheJob, error) {
+func (c *CacheJobDao) GetCacheJob(condition *query.CacheJobQuery) (*model.CacheJob, error) {
 	var preheatJobs []*model.CacheJob
-	db := d.baseData.BizDB.Model(&model.CacheJob{})
+	db := c.baseData.BizDB.Model(&model.CacheJob{})
 	if condition.Id != 0 {
 		db.Where("id = ?", condition.Id)
 	}
@@ -77,7 +77,7 @@ func (d *CacheJobDao) GetCacheJob(condition *query.CacheJobQuery) (*model.CacheJ
 	return nil, nil
 }
 
-func (d *CacheJobDao) RemoteRequestPathsInfo(domain, dataType, org, repo, revision, token string, fileNames []string) ([]common.PathsInfo, error) {
+func (c *CacheJobDao) RemoteRequestPathsInfo(domain, dataType, org, repo, revision, token string, fileNames []string) ([]common.PathsInfo, error) {
 	var reqUri = "/api/getPathInfo"
 	headers := map[string]string{}
 	if token != "" {
@@ -109,7 +109,7 @@ func (d *CacheJobDao) RemoteRequestPathsInfo(domain, dataType, org, repo, revisi
 	return ret, nil
 }
 
-func (d *CacheJobDao) UpdateStatus(statusReq *query.UpdateJobStatusReq) error {
+func (c *CacheJobDao) UpdateCacheStatus(statusReq *query.UpdateJobStatusReq) error {
 	var (
 		msgStr []byte
 		err    error
@@ -124,19 +124,19 @@ func (d *CacheJobDao) UpdateStatus(statusReq *query.UpdateJobStatusReq) error {
 	}
 	sql := fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
 		statusReq.Status, string(msgStr), util.GetCurrentTimeStr(), statusReq.Id)
-	if err := d.baseData.BizDB.Exec(sql).Error; err != nil {
+	if err := c.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq) error {
-	err := d.UpdateStatus(jobStatusReq)
+func (c *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq) error {
+	err := c.UpdateCacheStatus(jobStatusReq)
 	if err != nil {
 		return err
 	}
 	if jobStatusReq.Status == consts.StatusCacheJobComplete {
-		err = d.repositoryDao.PersistRepo(&query.PersistRepoReq{InstanceIds: []string{jobStatusReq.InstanceId},
+		err = c.repositoryDao.PersistRepo(&query.PersistRepoReq{InstanceIds: []string{jobStatusReq.InstanceId},
 			Org: jobStatusReq.Org, Repo: jobStatusReq.Repo, OffVerify: true})
 		if err != nil {
 			return err
@@ -144,25 +144,25 @@ func (d *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq
 	}
 	return nil
 }
-func (d *CacheJobDao) Delete(id int64) error {
-	if err := d.baseData.BizDB.Where("id = ?", id).Delete(&model.CacheJob{}).Error; err != nil {
+func (c *CacheJobDao) Delete(id int64) error {
+	if err := c.baseData.BizDB.Where("id = ?", id).Delete(&model.CacheJob{}).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *CacheJobDao) UpdateMountCachePid(mountCachePidReq *query.UpdateMountCachePidReq) error {
+func (c *CacheJobDao) UpdateMountCachePid(mountCachePidReq *query.UpdateMountCachePidReq) error {
 	sql := fmt.Sprintf("UPDATE mount_cache_job SET shell_pid = %d, updated_at = '%s' WHERE id = %d",
 		mountCachePidReq.Pid, util.GetCurrentTimeStr(), mountCachePidReq.Id)
-	if err := d.baseData.BizDB.Exec(sql).Error; err != nil {
+	if err := c.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *CacheJobDao) ListCacheJob(condition *query.CacheJobQuery) ([]*model.CacheJob, int64, error) {
+func (c *CacheJobDao) ListCacheJob(condition *query.CacheJobQuery) ([]*model.CacheJob, int64, error) {
 	var cacheJobs []*model.CacheJob
-	db := d.baseData.BizDB.Model(&model.CacheJob{})
+	db := c.baseData.BizDB.Model(&model.CacheJob{})
 	if condition.Id != 0 {
 		db.Where("id = ?", condition.Id)
 	}

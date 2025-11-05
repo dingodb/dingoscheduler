@@ -14,7 +14,7 @@ server:
 
 bizDB:
     type: "mysql"
-    host: "172.30.14.123" #172.30.14.123,10.220.70.213
+    host: "10.220.70.213" #172.30.14.123,10.220.70.213
     port: 3307
     user: root
     password: 123123
@@ -29,7 +29,7 @@ scheduler:
         enable: true
         cron: 0 5 10 * * ?
         instanceIds:
-    globalHfToken: 
+    globalHfToken:
 
 retry:
     delay: 1       #重试间隔时间，单位秒，默认为1
@@ -74,3 +74,4 @@ aidc:
     xn-01: xn-01
     hd-04: hd-04
     xn-03: xn-03
+    xn-zl: xn-zl

@@ -38,7 +38,7 @@ func wireApp(configConfig *config.Config) (*app.App, func(), error) {
 	repositoryDao := dao.NewRepositoryDao(baseData, repositoryTagDao, tagDao, dingospeedDao, organizationDao)
 	cacheJobDao := dao.NewCacheJobDao(baseData, repositoryDao)
 	schedulerService := service.NewSchedulerService(baseData, dingospeedDao, modelFileRecordDao, modelFileProcessDao, repositoryDao, cacheJobDao)
-	repositoryService := service.NewRepositoryService(dingospeedDao, modelFileProcessDao, repositoryDao, baseData, organizationDao, tagDao)
+	repositoryService := service.NewRepositoryService(dingospeedDao, repositoryDao, baseData, organizationDao, tagDao)
 	managerHandler := handler.NewManagerHandler(schedulerService, repositoryService)
 	sysService := service.NewSysService(repositoryDao)
 	sysHandler := handler.NewSysHandler(sysService)
