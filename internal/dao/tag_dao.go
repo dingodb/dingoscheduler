@@ -71,6 +71,10 @@ func (d *TagDao) TagListByCondition(condition *modelquery.TagQuery) ([]*model.Ta
 	var tags []*model.Tag
 	query := d.baseData.BizDB.Table("tag")
 
+	if condition.DataType == "dataset" {
+		condition.Types[0] = "data_" + condition.Types[0]
+	}
+
 	if len(condition.Id) > 0 {
 		query = query.Where("id = ?", condition.Id)
 	}

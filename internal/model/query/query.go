@@ -108,6 +108,7 @@ type TagQuery struct {
 	Types    []string
 	SubTypes []string
 	Labels   []string
+	DataType string
 }
 
 type MainTagQuery struct {

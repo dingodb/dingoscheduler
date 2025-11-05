@@ -24,6 +24,7 @@ func NewTagHandler(tagService *service.TagService) *TagHandler {
 func (handler *TagHandler) TagHandler(c echo.Context) error {
 	tagTypesStr := c.QueryParam("type")
 	tagSubTypeStr := c.QueryParam("subType")
+	dataType := c.QueryParam("datatype")
 
 	var tagTypes []string
 	if tagTypesStr != "" {
@@ -52,6 +53,7 @@ func (handler *TagHandler) TagHandler(c echo.Context) error {
 	tags, err := handler.tagService.TagListByCondition(&query.TagQuery{
 		Types:    tagTypes,
 		SubTypes: tagSubTypes,
+		DataType: dataType,
 	})
 	if err != nil {
 		if e, ok := err.(myerr.Error); ok {

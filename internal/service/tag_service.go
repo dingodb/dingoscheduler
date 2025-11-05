@@ -72,6 +72,12 @@ func (t *TagService) TagListByCondition(query *query.TagQuery) ([]*dto.Tag, erro
 		return nil, err
 	}
 
+	if query.DataType == "dataset" {
+		for _, tag := range tags {
+			tag.Type = tag.Type[5:]
+		}
+	}
+
 	tagDTOs := make([]*dto.Tag, 0, len(tags))
 	gocopy.Copy(&tagDTOs, &tags)
 

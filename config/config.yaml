@@ -29,7 +29,7 @@ scheduler:
         enable: true
         cron: 0 5 10 * * ?
         instanceIds:
-    globalHfToken:
+    globalHfToken: 
 
 retry:
     delay: 1       #重试间隔时间，单位秒，默认为1
