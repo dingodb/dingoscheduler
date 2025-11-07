@@ -16,4 +16,5 @@ package service
 
 import "github.com/google/wire"
 
-var ServiceProvider = wire.NewSet(NewSchedulerService, NewSysService, NewCacheJobService, NewRepositoryService, NewTagService, NewOrganizationService)
+var ServiceProvider = wire.NewSet(NewSchedulerService, NewSysService, NewCacheJobService, NewRepositoryService,
+	NewTagService, NewOrganizationService, NewHfTokenService)

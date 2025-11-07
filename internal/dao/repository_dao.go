@@ -38,17 +38,19 @@ type RepositoryDao struct {
 	dingospeedDao    *DingospeedDao
 	organizationDao  *OrganizationDao
 	tagDao           *TagDao
+	hfTokenDao       *HfTokenDao
 	persistSync      sync.Mutex
 }
 
 func NewRepositoryDao(data *data.BaseData, repositoryTagDao *RepositoryTagDao, tagDao *TagDao,
-	dingospeedDao *DingospeedDao, organizationDao *OrganizationDao) *RepositoryDao {
+	dingospeedDao *DingospeedDao, organizationDao *OrganizationDao, hfTokenDao *HfTokenDao) *RepositoryDao {
 	return &RepositoryDao{
 		baseData:         data,
 		tagDao:           tagDao,
 		repositoryTagDao: repositoryTagDao,
 		dingospeedDao:    dingospeedDao,
 		organizationDao:  organizationDao,
+		hfTokenDao:       hfTokenDao,
 	}
 }
 
@@ -82,60 +84,68 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 		}
 		speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 		for _, repository := range freeRepositories {
-			orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
-			metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", util.GetHeaders())
-			if err != nil {
-				return err
-			}
-			if metaResp.StatusCode != http.StatusOK && metaResp.StatusCode != http.StatusTemporaryRedirect {
-				return myerr.NewAppendCode(metaResp.StatusCode, "RemoteRequestMeta err")
-			}
-			var metaData dto.CommitHfSha
-			if err = sonic.Unmarshal(metaResp.Body, &metaData); err != nil {
-				zap.S().Errorf("unmarshal error.%v", err)
-				return err
-			}
-			if !persistRepoReq.OffVerify {
-				// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
-				isComplete, err := r.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
-				if err != nil {
-					return err
-				}
-				if !isComplete {
-					continue
-				}
-			}
-			// 保存组织图片
-			err = r.organizationDao.PersistOrgLogo(repository.Org)
-			if err != nil {
-				zap.S().Errorf("PersistOrgLogo err.org:%s, %v", repository.Org, err)
-			}
-			repo := &model.Repository{
-				InstanceId:    instanceId,
-				Datatype:      repository.Datatype,
-				Org:           repository.Org,
-				Repo:          repository.Repo,
-				OrgRepo:       orgRepo,
-				LikeNum:       metaData.Likes,
-				DownloadNum:   metaData.Downloads,
-				PipelineTagId: metaData.PipelineTag,
-				PipelineTag:   pipelineMap[metaData.PipelineTag],
-				LastModified:  metaData.LastModified,
-				UsedStorage:   metaData.UsedStorage,
-				Sha:           metaData.Sha,
-			}
-			tags := make([]*model.RepositoryTag, 0)
-			for _, tag := range metaData.Tags {
-				tags = append(tags, &model.RepositoryTag{
-					TagId: tag,
-				})
-			}
-			err = r.RepoAndTagSave(repo, tags)
-			if err != nil {
-				zap.S().Errorf("repository save err.%v", err)
-				return err
+			if err = r.singleRepositoryPersist(repository, instanceId, speedDomain, pipelineMap, persistRepoReq.OffVerify); err != nil {
+				zap.S().Errorf("singleRepositoryPersist err.%v", err)
+				continue
 			}
 		}
+	}
+	return nil
+}
+
+func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, instanceId, speedDomain string, pipelineMap map[string]string, offVerify bool) error {
+	orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
+	metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", r.hfTokenDao.GetHeaders())
+	if err != nil {
+		return err
+	}
+	if metaResp.StatusCode != http.StatusOK && metaResp.StatusCode != http.StatusTemporaryRedirect {
+		return myerr.NewAppendCode(metaResp.StatusCode, fmt.Sprintf("RemoteRequestMeta err,%s", orgRepo))
+	}
+	var metaData dto.CommitHfSha
+	if err = sonic.Unmarshal(metaResp.Body, &metaData); err != nil {
+		zap.S().Errorf("unmarshal error.orgRepo:%s, %v", orgRepo, err)
+		return err
+	}
+	if !offVerify {
+		// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
+		isComplete, err := r.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
+		if err != nil {
+			return err
+		}
+		if !isComplete {
+			return myerr.New(fmt.Sprintf("repo file unComplete.%s", orgRepo))
+		}
+	}
+	// 保存组织图片
+	err = r.organizationDao.PersistOrgLogo(repository.Org)
+	if err != nil {
+		zap.S().Errorf("PersistOrgLogo err.org:%s, %v", repository.Org, err)
+	}
+	repo := &model.Repository{
+		InstanceId:    instanceId,
+		Datatype:      repository.Datatype,
+		Org:           repository.Org,
+		Repo:          repository.Repo,
+		OrgRepo:       orgRepo,
+		LikeNum:       metaData.Likes,
+		DownloadNum:   metaData.Downloads,
+		PipelineTagId: metaData.PipelineTag,
+		PipelineTag:   pipelineMap[metaData.PipelineTag],
+		LastModified:  metaData.LastModified,
+		UsedStorage:   metaData.UsedStorage,
+		Sha:           metaData.Sha,
+	}
+	tags := make([]*model.RepositoryTag, 0)
+	for _, tag := range metaData.Tags {
+		tags = append(tags, &model.RepositoryTag{
+			TagId: tag,
+		})
+	}
+	err = r.RepoAndTagSave(repo, tags)
+	if err != nil {
+		zap.S().Errorf("repository save err.orgRepo:%s,%v", orgRepo, err)
+		return err
 	}
 	return nil
 }

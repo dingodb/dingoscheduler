@@ -135,10 +135,6 @@ func (c *Config) EnableMetric() bool {
 	return c.Server.Metrics
 }
 
-func (c *Config) GetGlobalHfToken() string {
-	return c.Scheduler.GlobalHfToken
-}
-
 func (c *Config) SetDefaults() {
 	if c.Server.Port == 0 {
 		c.Server.Port = 8090

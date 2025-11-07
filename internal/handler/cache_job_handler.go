@@ -97,7 +97,7 @@ func (handler *CacheJobHandler) StopCacheJobHandler(c echo.Context) error {
 	}
 	instanceId, err := GetInstanceId(jobStatusReq.AidcCode)
 	if err != nil {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	jobStatusReq.InstanceId = instanceId
 	err = handler.cacheJobService.StopCacheJob(jobStatusReq)
@@ -114,7 +114,7 @@ func (handler *CacheJobHandler) ResumeCacheJobHandler(c echo.Context) error {
 	}
 	instanceId, err := GetInstanceId(resumeCacheJobReq.AidcCode)
 	if err != nil {
-		return util.ErrorRequestParam(c)
+		return util.ErrorRequestParamCN(c)
 	}
 	resumeCacheJobReq.InstanceId = instanceId
 	err = handler.cacheJobService.ResumeCacheJob(resumeCacheJobReq)

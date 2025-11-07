@@ -271,9 +271,3 @@ func doPost(client *http.Client, targetURL string, contentType string, data []by
 func IsInnerDomain(url string) bool {
 	return !strings.Contains(url, consts.Huggingface) && !strings.Contains(url, consts.Hfmirror)
 }
-
-func GetHeaders() map[string]string {
-	m := make(map[string]string)
-	m["Authorization"] = fmt.Sprintf("Bearer %s", config.SysConfig.GetGlobalHfToken())
-	return m
-}

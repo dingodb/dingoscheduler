@@ -43,20 +43,22 @@ type RepositoryService struct {
 	dingospeedDao   *dao.DingospeedDao
 	repositoryDao   *dao.RepositoryDao
 	organizationDao *dao.OrganizationDao
-	client          *http.Client
 	tagDao          *dao.TagDao
+	hfTokenDao      *dao.HfTokenDao
+	client          *http.Client
 	persistSync     sync.Mutex
 }
 
 func NewRepositoryService(dingospeedDao *dao.DingospeedDao,
 	repositoryDao *dao.RepositoryDao, baseData *data.BaseData, organizationDao *dao.OrganizationDao,
-	tagDao *dao.TagDao) *RepositoryService {
+	tagDao *dao.TagDao, hfTokenDao *dao.HfTokenDao) *RepositoryService {
 	return &RepositoryService{
 		baseData:        baseData,
 		dingospeedDao:   dingospeedDao,
 		repositoryDao:   repositoryDao,
 		organizationDao: organizationDao,
 		tagDao:          tagDao,
+		hfTokenDao:      hfTokenDao,
 		client:          &http.Client{},
 	}
 }
@@ -252,7 +254,7 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if err != nil {
 		return err
 	}
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, util.GetHeaders())
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, s.hfTokenDao.GetHeaders())
 	if err != nil {
 		return err
 	}

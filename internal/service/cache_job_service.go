@@ -33,19 +33,21 @@ type CacheJobService struct {
 	dingospeedDao       *dao.DingospeedDao
 	modelFileProcessDao *dao.ModelFileProcessDao
 	cacheJobDao         *dao.CacheJobDao
+	hfTokenDao          *dao.HfTokenDao
 }
 
 func NewCacheJobService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *dao.ModelFileProcessDao,
-	cacheJobDao *dao.CacheJobDao) *CacheJobService {
+	cacheJobDao *dao.CacheJobDao, hfTokenDao *dao.HfTokenDao) *CacheJobService {
 	return &CacheJobService{
 		dingospeedDao:       dingospeedDao,
 		cacheJobDao:         cacheJobDao,
 		modelFileProcessDao: modelFileProcessDao,
+		hfTokenDao:          hfTokenDao,
 	}
 }
 
-func (p *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSize int) ([]*model.CacheJob, int64, error) {
-	cacheJobs, size, err := p.cacheJobDao.ListCacheJob(&query.CacheJobQuery{
+func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSize int) ([]*model.CacheJob, int64, error) {
+	cacheJobs, size, err := c.cacheJobDao.ListCacheJob(&query.CacheJobQuery{
 		Type:       consts.CacheTypePreheat,
 		InstanceId: instanceId,
 		Datatype:   datatype,
@@ -58,9 +60,9 @@ func (p *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSi
 	return cacheJobs, size, nil
 }
 
-func (p *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
+func (c *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
 	zap.S().Debugf("Cache instanceId:%s, %s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
-	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: createCacheJobReq.Type,
+	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: createCacheJobReq.Type,
 		Org: createCacheJobReq.Org, Repo: createCacheJobReq.Repo, Datatype: createCacheJobReq.Datatype})
 	if err != nil {
 		return nil, err
@@ -68,7 +70,7 @@ func (p *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJob
 	if cacheJob != nil {
 		return nil, myerr.New("已存在该任务，不能再创建。")
 	}
-	entity, err := p.dingospeedDao.GetEntity(createCacheJobReq.InstanceId, true)
+	entity, err := c.dingospeedDao.GetEntity(createCacheJobReq.InstanceId, true)
 	if err != nil {
 		return nil, err
 	}
@@ -80,28 +82,28 @@ func (p *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJob
 	if err != nil {
 		return nil, err
 	}
-	return util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, util.GetHeaders())
+	return util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, c.hfTokenDao.GetHeaders())
 }
 
-func (p *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
-	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: jobStatusReq.Id})
+func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
+	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: jobStatusReq.Id})
 	if err != nil {
 		return err
 	}
 	if cacheJob == nil {
-		return myerr.New(fmt.Sprintf("任务不存在，编号:%d", jobStatusReq.Id))
+		return myerr.New(fmt.Sprintf("任务不存在。"))
 	}
 	if cacheJob.Status != consts.StatusCacheJobIng {
 		return myerr.New(fmt.Sprintf("job is not running, Can't be stopped.%d", cacheJob.Status))
 	}
-	entity, err := p.dingospeedDao.GetEntity(jobStatusReq.InstanceId, true)
+	entity, err := c.dingospeedDao.GetEntity(jobStatusReq.InstanceId, true)
 	if err != nil {
 		return err
 	}
 	if entity == nil {
 		return myerr.New("该区域dingspeed未注册。")
 	}
-	err = p.cacheJobDao.UpdateCacheStatus(&query.UpdateJobStatusReq{Id: jobStatusReq.Id, Status: consts.StatusCacheJobStopping})
+	err = c.cacheJobDao.UpdateCacheStatus(&query.UpdateJobStatusReq{Id: jobStatusReq.Id, Status: consts.StatusCacheJobStopping})
 	if err != nil {
 		return err
 	}
@@ -110,15 +112,15 @@ func (p *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 	if err != nil {
 		return err
 	}
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/stop", "application/json", b, util.GetHeaders())
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/stop", "application/json", b, c.hfTokenDao.GetHeaders())
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (p *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJobReq) error {
-	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: resumeCacheJobReq.Id})
+func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJobReq) error {
+	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: resumeCacheJobReq.Id})
 	if err != nil {
 		return err
 	}
@@ -128,7 +130,7 @@ func (p *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 	if cacheJob.Status != consts.StatusCacheJobBreak {
 		return myerr.New("当前状态不可执行该操作。")
 	}
-	entity, err := p.dingospeedDao.GetEntity(resumeCacheJobReq.InstanceId, true)
+	entity, err := c.dingospeedDao.GetEntity(resumeCacheJobReq.InstanceId, true)
 	if err != nil {
 		return err
 	}
@@ -148,23 +150,23 @@ func (p *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 	if err != nil {
 		return err
 	}
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/resume", "application/json", b, util.GetHeaders())
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/resume", "application/json", b, c.hfTokenDao.GetHeaders())
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (p *CacheJobService) DeleteCacheJob(id int64) error {
-	cacheJob, err := p.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: id})
+func (c *CacheJobService) DeleteCacheJob(id int64) error {
+	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: id})
 	if err != nil {
 		return err
 	}
 	if cacheJob == nil {
-		return myerr.New(fmt.Sprintf("记录不存在。编号：%d", id))
+		return myerr.New(fmt.Sprintf("记录不存在。"))
 	}
 	if cacheJob.Status == consts.StatusCacheJobIng || cacheJob.Status == consts.StatusCacheJobComplete {
-		return myerr.New(fmt.Sprintf("当前缓存任务不能删除。编号：%d", id))
+		return myerr.New(fmt.Sprintf("当前缓存任务不能删除。"))
 	}
-	return p.cacheJobDao.Delete(id)
+	return c.cacheJobDao.Delete(id)
 }

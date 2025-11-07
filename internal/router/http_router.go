@@ -56,6 +56,7 @@ func (r *HttpRouter) initRouter() {
 		r.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
 	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler) // 持久化仓库
+	r.echo.GET("/api/refreshToken", r.managerHandler.RefreshToken)       // 持久化仓库
 	r.repositoryRouter()                                                 // repository接口
 	r.cacheJobRouter()                                                   // 模型缓存
 }
