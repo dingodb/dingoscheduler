@@ -103,7 +103,9 @@ func (s *RepositoryService) GetRepositoryById(id int64) (*dto.Repository, error)
 	if icon, err := s.organizationDao.GetOrganization(repository.Org); err != nil {
 		return nil, err
 	} else {
-		repo.Icon = fmt.Sprintf("%s%s", config.SysConfig.Oss.Path, icon)
+		if icon != "" {
+			repo.Icon = fmt.Sprintf("%s%s", config.SysConfig.Oss.Path, icon)
+		}
 	}
 	return &repo, nil
 }
