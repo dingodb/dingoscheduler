@@ -8,7 +8,6 @@ import (
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/internal/service"
 	"dingoscheduler/pkg/config"
-	myerr "dingoscheduler/pkg/error"
 	"dingoscheduler/pkg/util"
 
 	"github.com/labstack/echo/v4"
@@ -79,11 +78,7 @@ func (handler *RepositoryHandler) RepositoriesHandler(c echo.Context) error {
 		Status:            status,
 	})
 	if err != nil {
-		zap.S().Errorf("RepositoryList err.%v", err)
-		if e, ok := err.(myerr.Error); ok {
-			return util.ErrorEntryUnknown(c, e.StatusCode(), err.Error())
-		}
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	return util.ResponseData(c, util.PageData{
 		Total: total,
@@ -117,10 +112,7 @@ func (handler *RepositoryHandler) RepositoryInfoHandler(c echo.Context) error {
 	model, err := handler.repositoryService.GetRepositoryById(id)
 	if err != nil {
 		zap.S().Errorf("GetRepositoryById err.%v", err)
-		if e, ok := err.(myerr.Error); ok {
-			return util.ErrorEntryUnknown(c, e.StatusCode(), e.Error())
-		}
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	return util.ResponseData(c, model)
 }
@@ -134,8 +126,8 @@ func (handler *RepositoryHandler) RepositoryCardHandler(c echo.Context) error {
 	id := util.Atoi64(c.Param("id"))
 	resp, err := handler.repositoryService.RepositoryCardById(c, instanceId, id)
 	if err != nil {
-		zap.S().Errorf("GetRepositoryById err.%v", err)
-		return util.ResponseError(c)
+		zap.S().Errorf("RepositoryCardById err.%v", err)
+		return util.ResponseError(c, err)
 	}
 	extractHeaders := resp.ExtractHeaders(resp.Headers)
 	for key, values := range extractHeaders {
@@ -159,7 +151,7 @@ func (handler *RepositoryHandler) RepositoryFilesHandler(c echo.Context) error {
 	err = handler.repositoryService.RepositoryFilesById(c, instanceId, id, filePath)
 	if err != nil {
 		zap.S().Errorf("GetRepositoryById err.%v", err)
-		return util.ResponseError(c)
+		return util.ResponseError(c, err)
 	}
 	return nil
 }

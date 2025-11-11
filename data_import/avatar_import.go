@@ -56,8 +56,7 @@ func main() {
 	zap.S().Infof("数据库连接初始化成功")
 
 	modelFileRecordDao := dao.NewModelFileRecordDao(baseData)
-	hfTokenDao := dao.NewHfTokenDao(baseData)
-	organizationDao := dao.NewOrganizationDao(baseData, hfTokenDao)
+	organizationDao := dao.NewOrganizationDao(baseData)
 	zap.S().Infof("DAO层初始化完成（ModelFileRecordDao、OrganizationDao）")
 	orgs, err := modelFileRecordDao.FindDistinctOrgs()
 	if err != nil {
@@ -96,7 +95,7 @@ func main() {
 		}
 
 		zap.S().Infof("开始处理第 %d/%d 个repo：%s", idx+1, len(orgs), org)
-		avatarURL, err := util.FetchAvatarURL(org, hfTokenDao.GetHeaders())
+		avatarURL, err := util.FetchAvatarURL(org)
 		if err != nil {
 			zap.S().Errorf("处理repo [%s] 失败：获取头像URL错误，%v，跳过", org, err)
 			continue

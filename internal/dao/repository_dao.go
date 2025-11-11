@@ -67,6 +67,9 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 		return err
 	}
 	for _, instanceId := range persistRepoReq.InstanceIds {
+		if instanceId == "" {
+			continue
+		}
 		// 存在下载记录和进度，但【模型】在仓库不存在，没有数据集。
 		freeRepositories, err := r.GetFreeRepository(instanceId, persistRepoReq.Org, persistRepoReq.Repo)
 		if err != nil {
@@ -75,14 +78,14 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 		if len(freeRepositories) == 0 {
 			return myerr.New("没有要持久化的仓库。")
 		}
-		entity, err := r.dingospeedDao.GetEntity(instanceId, true)
+		speed, err := r.dingospeedDao.GetEntity(instanceId, true)
 		if err != nil {
 			return err
 		}
-		if entity == nil {
+		if speed == nil {
 			return myerr.New("该区域dingospeed未注册。")
 		}
-		speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
+		speedDomain := fmt.Sprintf("http://%s:%d", speed.Host, speed.Port)
 		for _, repository := range freeRepositories {
 			if err = r.singleRepositoryPersist(repository, instanceId, speedDomain, pipelineMap, persistRepoReq.OffVerify); err != nil {
 				zap.S().Errorf("singleRepositoryPersist err.%v", err)

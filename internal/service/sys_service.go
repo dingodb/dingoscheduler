@@ -37,20 +37,21 @@ func NewSysService(repositoryDao *dao.RepositoryDao) *SysService {
 func (s SysService) startPersistRepo() {
 	c := cron.New(cron.WithSeconds())
 	_, err := c.AddFunc(config.SysConfig.GetPersistRepoCron(), func() {
-		ids := config.SysConfig.Scheduler.PersistRepo.InstanceIds
-		instanceIds := strings.Split(ids, ",")
-		if len(instanceIds) > 0 {
-			err := s.repositoryDao.PersistRepo(&query.PersistRepoReq{
-				InstanceIds: instanceIds, OffVerify: false,
-			})
-			if err != nil {
-				zap.S().Errorf("cron exec persistRepo err: %v", err)
-				return
+		instanceIds := config.SysConfig.Scheduler.PersistRepo.InstanceIds
+		if instanceIds != "" {
+			instanceIdSlice := strings.Split(instanceIds, ",")
+			if len(instanceIdSlice) > 0 {
+				err := s.repositoryDao.PersistRepo(&query.PersistRepoReq{
+					InstanceIds: instanceIdSlice, OffVerify: false,
+				})
+				if err != nil {
+					zap.S().Errorf("cron exec persistRepo err: %v", err)
+				}
 			}
 		}
 	})
 	if err != nil {
-		zap.S().Errorf("添加任务失败: %v", err)
+		zap.S().Errorf("添加PersistRepo任务失败: %v", err)
 		return
 	}
 	c.Start()

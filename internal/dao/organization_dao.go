@@ -17,14 +17,12 @@ import (
 var mu sync.Mutex
 
 type OrganizationDao struct {
-	baseData   *data.BaseData
-	hfTokenDao *HfTokenDao
+	baseData *data.BaseData
 }
 
-func NewOrganizationDao(data *data.BaseData, hfTokenDao *HfTokenDao) *OrganizationDao {
+func NewOrganizationDao(data *data.BaseData) *OrganizationDao {
 	return &OrganizationDao{
-		baseData:   data,
-		hfTokenDao: hfTokenDao,
+		baseData: data,
 	}
 }
 
@@ -96,7 +94,7 @@ func (o *OrganizationDao) PersistOrgLogo(org string) error {
 	if icon != "" {
 		return nil
 	}
-	avatarURL, err := util.FetchAvatarURL(org, o.hfTokenDao.GetHeaders())
+	avatarURL, err := util.FetchAvatarURL(org)
 	if err != nil {
 		zap.S().Errorf("处理repo [%s] 失败：获取头像URL错误，%v，跳过", org, err)
 		return err

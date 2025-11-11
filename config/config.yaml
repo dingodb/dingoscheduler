@@ -5,7 +5,7 @@ server:
     pprof: true
     pprofPort: 7060
     metrics: true
-    hfNetLoc: hf-mirror.com   # huggingface.co  下载图标时使用
+    hfNetLoc: huggingface.co   # huggingface.co  下载图标时使用
     hfScheme: https
     ssl:
         keyFile: config/ssl/server.key
@@ -14,7 +14,7 @@ server:
 
 bizDB:
     type: "mysql"
-    host: "10.220.70.213" #172.30.14.123,10.220.70.213
+    host: "172.30.14.123" #172.30.14.123,10.220.70.213
     port: 3307
     user: root
     password: 123123
@@ -26,9 +26,9 @@ bizDB:
 scheduler:
     port: 19091
     persistRepo:
-        enable: true
-        cron: 0 5 10 * * ?
-        instanceIds:
+        enabled: true
+        cron: 0 40 11 * * ?   #10点过5分
+        instanceIds: hd-01,
 
 retry:
     delay: 1       #重试间隔时间，单位秒，默认为1

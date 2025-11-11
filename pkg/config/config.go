@@ -20,8 +20,6 @@ import (
 	"os"
 	"time"
 
-	"dingoscheduler/internal/model"
-
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/gommon/log"
 	"go.uber.org/zap"
@@ -29,7 +27,6 @@ import (
 )
 
 var SysConfig *Config
-var SystemInfo *model.SystemInfo
 
 type Config struct {
 	Server      ServerConfig      `json:"server" yaml:"server"`
@@ -207,7 +204,6 @@ func Scan(path string) (*Config, error) {
 		return nil, err
 	}
 	log.Info(string(marshal))
-	SystemInfo = &model.SystemInfo{}
 	return &c, nil
 }
 

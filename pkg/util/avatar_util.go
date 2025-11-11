@@ -20,9 +20,11 @@ import (
 	"golang.org/x/net/html"
 )
 
-func FetchAvatarURL(orgName string, headers map[string]string) (string, error) {
+func FetchAvatarURL(orgName string) (string, error) {
 	orgUri := fmt.Sprintf("/%s", orgName)
 	zap.S().Debugf("开始请求Hugging Face组织页面：%s", orgUri) // 调试级日志，记录请求地址
+	// 这里无需设置token，设了反而会出现401
+	headers := make(map[string]string)
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 	headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
 	resp, err := Get(orgUri, headers)
