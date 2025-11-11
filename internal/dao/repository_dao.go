@@ -55,7 +55,7 @@ func NewRepositoryDao(data *data.BaseData, repositoryTagDao *RepositoryTagDao, t
 }
 
 func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error {
-	zap.S().Debugf("PersistRepo instanceId:%s， org:%s, repo:%s", persistRepoReq.InstanceIds, persistRepoReq.Org, persistRepoReq.Repo)
+	zap.S().Debugf("PersistRepo start instanceId:%s， org:%s, repo:%s", persistRepoReq.InstanceIds, persistRepoReq.Org, persistRepoReq.Repo)
 	var (
 		pipelineMap map[string]string
 		err         error
@@ -93,6 +93,7 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 			}
 		}
 	}
+	zap.S().Debugf("PersistRepo end instanceId:%s， org:%s, repo:%s", persistRepoReq.InstanceIds, persistRepoReq.Org, persistRepoReq.Repo)
 	return nil
 }
 
@@ -117,7 +118,8 @@ func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, in
 			return err
 		}
 		if !isComplete {
-			return myerr.New(fmt.Sprintf("repo file unComplete.%s", orgRepo))
+			zap.S().Infof("repo file unComplete.%s", orgRepo)
+			return nil
 		}
 	}
 	// 保存组织图片

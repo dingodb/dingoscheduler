@@ -96,7 +96,6 @@ func FetchAvatarURL(orgName string) (string, error) {
 	}
 	findAvatar(doc)
 	if avatarURL == "" {
-		zap.S().Errorf("在组织页面（%s）中未找到符合特征的头像节点", orgUri)
 		return "", fmt.Errorf("未在组织页面（%s）中找到头像元素", orgUri)
 	}
 	return avatarURL, nil

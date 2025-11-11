@@ -34,15 +34,17 @@ type CacheJobService struct {
 	modelFileProcessDao *dao.ModelFileProcessDao
 	cacheJobDao         *dao.CacheJobDao
 	hfTokenDao          *dao.HfTokenDao
+	lockDao             *dao.LockDao
 }
 
 func NewCacheJobService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *dao.ModelFileProcessDao,
-	cacheJobDao *dao.CacheJobDao, hfTokenDao *dao.HfTokenDao) *CacheJobService {
+	cacheJobDao *dao.CacheJobDao, hfTokenDao *dao.HfTokenDao, lockDao *dao.LockDao) *CacheJobService {
 	return &CacheJobService{
 		dingospeedDao:       dingospeedDao,
 		cacheJobDao:         cacheJobDao,
 		modelFileProcessDao: modelFileProcessDao,
 		hfTokenDao:          hfTokenDao,
+		lockDao:             lockDao,
 	}
 }
 
@@ -62,6 +64,9 @@ func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSi
 
 func (c *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
 	zap.S().Debugf("Cache instanceId:%s, %s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
+	lock := c.lockDao.GetCacheJobReqLock(createCacheJobReq.OrgRepo)
+	lock.Lock()
+	defer lock.Unlock()
 	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: createCacheJobReq.Type,
 		Org: createCacheJobReq.Org, Repo: createCacheJobReq.Repo, Datatype: createCacheJobReq.Datatype})
 	if err != nil {
@@ -86,6 +91,9 @@ func (c *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJob
 }
 
 func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
+	lock := c.lockDao.GetCacheJobReqLock(util.Itoa(jobStatusReq.Id))
+	lock.Lock()
+	defer lock.Unlock()
 	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: jobStatusReq.Id})
 	if err != nil {
 		return err
@@ -120,6 +128,9 @@ func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 }
 
 func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJobReq) error {
+	lock := c.lockDao.GetCacheJobReqLock(util.Itoa(resumeCacheJobReq.Id))
+	lock.Lock()
+	defer lock.Unlock()
 	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: resumeCacheJobReq.Id})
 	if err != nil {
 		return err
@@ -158,6 +169,9 @@ func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 }
 
 func (c *CacheJobService) DeleteCacheJob(id int64) error {
+	lock := c.lockDao.GetCacheJobReqLock(util.Itoa(id))
+	lock.Lock()
+	defer lock.Unlock()
 	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{Id: id})
 	if err != nil {
 		return err
