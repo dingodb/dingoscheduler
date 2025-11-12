@@ -16,6 +16,7 @@ package dao
 
 import (
 	"fmt"
+	"strings"
 
 	"dingoscheduler/internal/data"
 	"dingoscheduler/internal/model"
@@ -111,19 +112,19 @@ func (c *CacheJobDao) RemoteRequestPathsInfo(domain, dataType, org, repo, revisi
 
 func (c *CacheJobDao) UpdateCacheStatus(statusReq *query.UpdateJobStatusReq) error {
 	var (
-		msgStr []byte
-		err    error
+		newMsgStr string
 	)
 	if statusReq.ErrorMsg != "" {
 		msg := make(map[string]string, 0)
 		msg["msg"] = statusReq.ErrorMsg
-		msgStr, err = sonic.Marshal(msg)
+		msgStr, err := sonic.Marshal(msg)
 		if err != nil {
 			return err
 		}
+		newMsgStr = strings.ReplaceAll(string(msgStr), "'", "''")
 	}
 	sql := fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
-		statusReq.Status, string(msgStr), util.GetCurrentTimeStr(), statusReq.Id)
+		statusReq.Status, newMsgStr, util.GetCurrentTimeStr(), statusReq.Id)
 	if err := c.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}

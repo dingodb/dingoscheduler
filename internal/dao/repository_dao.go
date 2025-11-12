@@ -76,7 +76,8 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 			return err
 		}
 		if len(freeRepositories) == 0 {
-			return myerr.New("没有要持久化的仓库。")
+			zap.S().Warnf("instanceId:%s 没有要持久化的仓库。", instanceId)
+			continue
 		}
 		speed, err := r.dingospeedDao.GetEntity(instanceId, true)
 		if err != nil {

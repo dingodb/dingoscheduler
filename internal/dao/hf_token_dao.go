@@ -27,7 +27,7 @@ func (d *HfTokenDao) getDefaultToken() string {
 	defer d.mu.Unlock()
 	if d.defaultToken == "" {
 		var hfTokens []*model.HfToken
-		if err := d.baseData.BizDB.Table("hf_token t1").Limit(1).Find(&hfTokens).Error; err != nil {
+		if err := d.baseData.BizDB.Table("hf_token t1").Where("enabled = ?", true).Limit(1).Find(&hfTokens).Error; err != nil {
 			zap.S().Errorf("getDefaultToken err.%v", err)
 			return ""
 		}

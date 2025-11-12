@@ -6,10 +6,10 @@ package model
 
 const TableNameHfToken = "hf_token"
 
-// PreheatJob mapped from table <preheat_job>
 type HfToken struct {
-	ID    int64  `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	Token string `gorm:"column:token;not null" json:"token"`
+	ID      int64  `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	Token   string `gorm:"column:token;not null" json:"token"`
+	Enabled bool   `gorm:"column:enabled;not null;comment:是否启用" json:"enabled"`
 }
 
 // TableName PreheatJob's table name
