@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath" // 新增：用于提取文件名
 	"time"
@@ -24,6 +25,14 @@ func init() {
 }
 
 func main() {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		fmt.Printf("初始化zap日志失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+	zap.ReplaceGlobals(logger)
+
 	flag.Parse()
 	conf, err := config.Scan(configPath)
 	if err != nil {
@@ -96,9 +105,12 @@ func main() {
 
 		zap.S().Infof("开始处理第 %d/%d 个repo：%s", idx+1, len(orgs), org)
 		avatarURL, err := util.FetchAvatarURL(org)
-		if err != nil {
-			zap.S().Errorf("处理repo [%s] 失败：获取头像URL错误，%v，跳过", org, err)
-			continue
+		if avatarURL == "" {
+			avatarURL, err = util.FetchPersonAvatarURL(org)
+			if avatarURL == "" {
+				zap.S().Errorf("处理repo [%s] 失败：获取头像URL错误，%v，跳过", org, err)
+				continue
+			}
 		}
 
 		zap.S().Infof("org [%s] 成功获取头像URL：%s", org, avatarURL)

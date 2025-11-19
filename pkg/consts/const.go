@@ -69,3 +69,5 @@ const (
 	RequestTypeHead = "head"
 	RequestTypeGet  = "get"
 )
+
+const OverseasHfNetLoc = "huggingface.co"

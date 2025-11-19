@@ -7,15 +7,20 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"dingoscheduler/pkg/config"
+	"dingoscheduler/pkg/consts"
 	myerr "dingoscheduler/pkg/error"
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
+	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/debug"
 	"go.uber.org/zap"
 	"golang.org/x/net/html"
 )
@@ -99,6 +104,54 @@ func FetchAvatarURL(orgName string) (string, error) {
 		return "", fmt.Errorf("未在组织页面（%s）中找到头像元素", orgUri)
 	}
 	return avatarURL, nil
+}
+
+func FetchPersonAvatarURL(orgName string) (string, error) {
+	srcPath := ""
+	c := colly.NewCollector(
+		colly.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36"),
+		colly.MaxDepth(2),
+		colly.Debugger(&debug.LogDebugger{}),
+	)
+
+	hfNetLoc := config.SysConfig.Server.HfNetLoc
+	if hfNetLoc == consts.OverseasHfNetLoc {
+		proxyURLStr := config.SysConfig.Proxy.HttpProxy
+		if proxyURLStr != "" {
+			proxyURL, err := url.Parse(proxyURLStr)
+			if err != nil {
+				zap.S().Warnf("代理地址解析失败: %v", err)
+			} else {
+				transport := &http.Transport{
+					Proxy: http.ProxyURL(proxyURL),
+				}
+				c.WithTransport(transport)
+				zap.S().Infof("已设置代理: %s", proxyURLStr)
+			}
+		}
+	}
+
+	c.OnHTML("html body div main div div section div div img", func(e *colly.HTMLElement) {
+		srcPath = e.Attr("src")
+		zap.S().Debugf("成功匹配头像img，src：%s", srcPath)
+	})
+
+	c.OnResponse(func(response *colly.Response) {
+		zap.S().Debugf("头像获取路径，url：%s", response.Request.URL.String())
+	})
+
+	domain := config.SysConfig.GetHFURLBase()
+	imageUrl := fmt.Sprintf("%s/%s", domain, orgName)
+	err := c.Visit(imageUrl)
+	if err != nil {
+		return "", myerr.New(fmt.Sprintf("解析HTML页面（%s）失败：%v", imageUrl, err))
+	}
+
+	if srcPath != "" && !strings.HasPrefix(srcPath, "http://") && !strings.HasPrefix(srcPath, "https://") {
+		return "", nil
+	}
+
+	return srcPath, nil
 }
 
 func DownloadAvatar(

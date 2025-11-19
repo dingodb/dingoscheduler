@@ -95,10 +95,14 @@ func (o *OrganizationDao) PersistOrgLogo(org string) error {
 		return nil
 	}
 	avatarURL, err := util.FetchAvatarURL(org)
-	if err != nil {
-		zap.S().Errorf("处理repo [%s] 失败：获取头像URL错误，%v，跳过", org, err)
-		return err
+	if avatarURL == "" || err != nil {
+		avatarURL, err = util.FetchPersonAvatarURL(org)
+		if avatarURL == "" || err != nil {
+			zap.S().Errorf("处理repo [%s] 失败：获取头像URL错误，%v，跳过", org, err)
+			return err
+		}
 	}
+
 	ossOption := &util.ImageUploadOption{
 		Region:  config.SysConfig.Oss.Region,
 		Timeout: 15 * time.Second,
