@@ -23,7 +23,6 @@ import (
 
 	"github.com/google/wire"
 	"github.com/patrickmn/go-cache"
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -56,11 +55,9 @@ func NewBaseData(conf *config.Config) (*BaseData, func(), error) {
 	cleanup := func() {
 		bizDb, _ := bizClient.DB()
 		_ = bizDb.Close()
-		zap.S().Info("datasource cleanup ok")
 	}
 
 	var debug = conf.Server.Mode != "release"
-
 	if debug {
 		bizClient = bizClient.Debug()
 	}

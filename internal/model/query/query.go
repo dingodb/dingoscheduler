@@ -32,13 +32,14 @@ type CacheJobQuery struct {
 }
 
 type ResumeCacheJobReq struct {
-	Id         int64  `json:"id"`
-	Type       int32  `json:"type"`
-	AidcCode   string `json:"aidcCode"`
-	InstanceId string `json:"instanceId"`
-	Datatype   string `json:"datatype"`
-	Org        string `json:"org"`
-	Repo       string `json:"repo"`
+	Id          int64  `json:"id"`
+	Type        int32  `json:"type"`
+	AidcCode    string `json:"aidcCode"`
+	InstanceId  string `json:"instanceId"`
+	Datatype    string `json:"datatype"`
+	Org         string `json:"org"`
+	Repo        string `json:"repo"`
+	UsedStorage int64  `json:"usedStorage"`
 }
 
 type JobStatusReq struct {
@@ -47,13 +48,24 @@ type JobStatusReq struct {
 	InstanceId string `json:"instanceId"`
 }
 
+type RealtimeReq struct {
+	CacheJobIds []int64 `json:"cacheJobIds"`
+}
+
+type RealtimeResp struct {
+	CacheJobId   int64   `json:"cacheJobId"`
+	StockSpeed   string  `json:"stockSpeed"`
+	StockProcess float32 `json:"stockProcess"`
+}
+
 type UpdateJobStatusReq struct {
-	Id         int64  `json:"id"`
-	InstanceId string `json:"instanceId"`
-	Status     int32  `json:"status"`
-	ErrorMsg   string `json:"errorMsg"`
-	Org        string `json:"org"`
-	Repo       string `json:"repo"`
+	Id         int64   `json:"id"`
+	InstanceId string  `json:"instanceId"`
+	Status     int32   `json:"status"`
+	ErrorMsg   string  `json:"errorMsg"`
+	Org        string  `json:"org"`
+	Repo       string  `json:"repo"`
+	Process    float32 `json:"process"`
 }
 
 type UpdateMountStatusReq struct {

@@ -18,7 +18,7 @@ import (
 	"fmt"
 
 	"dingoscheduler/internal/dao"
-	"dingoscheduler/internal/model"
+	"dingoscheduler/internal/model/dto"
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/consts"
@@ -26,6 +26,7 @@ import (
 	"dingoscheduler/pkg/util"
 
 	"github.com/bytedance/sonic"
+	"github.com/young2j/gocopy"
 	"go.uber.org/zap"
 )
 
@@ -48,7 +49,7 @@ func NewCacheJobService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *d
 	}
 }
 
-func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSize int) ([]*model.CacheJob, int64, error) {
+func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSize int) ([]*dto.CacheJobResp, int64, error) {
 	cacheJobs, size, err := c.cacheJobDao.ListCacheJob(&query.CacheJobQuery{
 		Type:       consts.CacheTypePreheat,
 		InstanceId: instanceId,
@@ -59,7 +60,61 @@ func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSi
 	if err != nil {
 		return nil, 0, err
 	}
-	return cacheJobs, size, nil
+	jobIds := make([]int64, 0)
+	for _, job := range cacheJobs {
+		if job.Status == consts.StatusCacheJobIng {
+			jobIds = append(jobIds, job.ID)
+		}
+	}
+	statusMap, err := c.getJobRealtimeStatus(jobIds, instanceId)
+	if err != nil {
+		return nil, 0, err
+	}
+	cacheJobResps := make([]*dto.CacheJobResp, 0, len(cacheJobs))
+	for _, job := range cacheJobs {
+		cacheJobResp := &dto.CacheJobResp{}
+		gocopy.Copy(cacheJobResp, job)
+		if status, ok := statusMap[job.ID]; ok {
+			cacheJobResp.StockSpeed = status.StockSpeed
+			cacheJobResp.StockProcess = status.StockProcess
+		} else {
+			cacheJobResp.StockSpeed = "-"
+			cacheJobResp.StockProcess = job.Process
+		}
+		cacheJobResp.CreatedAt = util.TimeToUnix(job.CreatedAt)
+		cacheJobResps = append(cacheJobResps, cacheJobResp)
+	}
+	return cacheJobResps, size, nil
+}
+
+func (c *CacheJobService) getJobRealtimeStatus(jobIds []int64, instanceId string) (map[int64]*query.RealtimeResp, error) {
+	m := make(map[int64]*query.RealtimeResp, 0)
+	if len(jobIds) > 0 {
+		entity, err := c.dingospeedDao.GetEntity(instanceId, true)
+		if err != nil {
+			return nil, err
+		}
+		speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
+		b, err := sonic.Marshal(query.RealtimeReq{
+			CacheJobIds: jobIds,
+		})
+		if err != nil {
+			return nil, err
+		}
+		resp, err := util.PostForDomain(speedDomain, "/api/cacheJob/realtime", "application/json", b, c.hfTokenDao.GetHeaders())
+		if err != nil {
+			return nil, err
+		}
+		realtimeData := make([]*query.RealtimeResp, 0)
+		err = sonic.Unmarshal(resp.Body, &realtimeData)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range realtimeData {
+			m[item.CacheJobId] = item
+		}
+	}
+	return m, nil
 }
 
 func (c *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
@@ -150,12 +205,13 @@ func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 	resumeReq := &query.ResumeCacheJobReq{
-		Id:         resumeCacheJobReq.Id,
-		Type:       cacheJob.Type,
-		InstanceId: cacheJob.InstanceId,
-		Datatype:   cacheJob.Datatype,
-		Org:        cacheJob.Org,
-		Repo:       cacheJob.Repo,
+		Id:          resumeCacheJobReq.Id,
+		Type:        cacheJob.Type,
+		InstanceId:  cacheJob.InstanceId,
+		Datatype:    cacheJob.Datatype,
+		Org:         cacheJob.Org,
+		Repo:        cacheJob.Repo,
+		UsedStorage: cacheJob.UsedStorage,
 	}
 	b, err := sonic.Marshal(resumeReq)
 	if err != nil {

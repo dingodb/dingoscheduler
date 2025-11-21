@@ -414,6 +414,7 @@ func (s *SchedulerService) UpdateCacheJobStatus(ctx context.Context, req *pb.Upd
 		ErrorMsg:   req.ErrorMsg,
 		Org:        req.Org,
 		Repo:       req.Repo,
+		Process:    req.Process,
 	})
 	if err != nil {
 		return nil, err

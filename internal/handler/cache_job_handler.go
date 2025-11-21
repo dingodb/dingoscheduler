@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"io"
 
-	"dingoscheduler/internal/model/dto"
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/internal/service"
 	"dingoscheduler/pkg/consts"
 	"dingoscheduler/pkg/util"
 
 	"github.com/labstack/echo/v4"
-	"github.com/young2j/gocopy"
 	"go.uber.org/zap"
 )
 
@@ -76,16 +74,9 @@ func (handler *CacheJobHandler) ListCacheJobHandler(c echo.Context) error {
 		return util.ErrorRequestParamCN(c)
 	}
 	datatype := c.QueryParam("datatype")
-	cacheJobs, total, err := handler.cacheJobService.ListCacheJob(instanceId, datatype, page, pageSize)
+	cacheJobResps, total, err := handler.cacheJobService.ListCacheJob(instanceId, datatype, page, pageSize)
 	if err != nil {
 		return util.ResponseError(c, err)
-	}
-	cacheJobResps := make([]*dto.CacheJobResp, 0, len(cacheJobs))
-	for _, job := range cacheJobs {
-		cacheJobResp := &dto.CacheJobResp{}
-		gocopy.Copy(cacheJobResp, job)
-		cacheJobResp.CreatedAt = util.TimeToUnix(job.CreatedAt)
-		cacheJobResps = append(cacheJobResps, cacheJobResp)
 	}
 	return util.NormalResponseData(c, util.PageData{Total: total, List: cacheJobResps})
 }

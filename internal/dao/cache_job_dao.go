@@ -123,8 +123,14 @@ func (c *CacheJobDao) UpdateCacheStatus(statusReq *query.UpdateJobStatusReq) err
 		}
 		newMsgStr = strings.ReplaceAll(string(msgStr), "'", "''")
 	}
-	sql := fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
-		statusReq.Status, newMsgStr, util.GetCurrentTimeStr(), statusReq.Id)
+	var sql string
+	if statusReq.Process > 0 {
+		sql = fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s', process = %f WHERE id = %d",
+			statusReq.Status, newMsgStr, util.GetCurrentTimeStr(), statusReq.Process, statusReq.Id)
+	} else {
+		sql = fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
+			statusReq.Status, newMsgStr, util.GetCurrentTimeStr(), statusReq.Id)
+	}
 	if err := c.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}
