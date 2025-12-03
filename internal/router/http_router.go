@@ -67,7 +67,7 @@ func (r *HttpRouter) repositoryRouter() {
 	r.echo.GET("/api/v1/repository/card/:aidcCode/:id", r.repositoryHandler.RepositoryCardHandler)             // 仓库介绍
 	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/", r.repositoryHandler.RepositoryFilesHandler)          // 仓库文件目录
 	r.echo.GET("/api/v1/repository/files/:aidcCode/:id/:filePath", r.repositoryHandler.RepositoryFilesHandler) // 仓库文件目录
-	r.echo.POST("/api/v1/repositories/mount", r.repositoryHandler.MountRepositoryHandler)                      // 挂载缓存
+	r.echo.POST("/api/v1/repositories/mount", r.repositoryHandler.MountRepositoryHandler)                      // 挂载缓存（公共目录）
 
 	r.echo.GET("/api/v1/tags", r.tagHandler.TagHandler)
 	r.echo.GET("/api/v1/task_tags", r.tagHandler.TaskTagHandler)
@@ -76,7 +76,7 @@ func (r *HttpRouter) repositoryRouter() {
 
 func (r *HttpRouter) cacheJobRouter() {
 	r.echo.GET("/api/v1/cacheJob/list", r.cacheJobHandler.ListCacheJobHandler)
-	r.echo.POST("/api/v1/cacheJob/create", r.cacheJobHandler.CreateCacheJobHandler)
+	r.echo.POST("/api/v1/cacheJob/create", r.cacheJobHandler.CreateCacheJobHandler) // 缓存任务创建
 	r.echo.POST("/api/v1/cacheJob/stop", r.cacheJobHandler.StopCacheJobHandler)
 	r.echo.POST("/api/v1/cacheJob/resume", r.cacheJobHandler.ResumeCacheJobHandler)
 	r.echo.DELETE("/api/v1/cacheJob/:id", r.cacheJobHandler.DeleteCacheJobHandler)

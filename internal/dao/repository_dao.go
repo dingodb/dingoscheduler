@@ -334,8 +334,9 @@ func (r *RepositoryDao) DeleteByInstanceIdAndDatatypeAndOrgAndRepo(instanceId st
 
 func (r *RepositoryDao) UpdateRepositoryMountStatus(statusReq *query.UpdateMountStatusReq) error {
 	var (
-		msgStr []byte
-		err    error
+		msgStr    []byte
+		err       error
+		newMsgStr string
 	)
 	if statusReq.ErrorMsg != "" {
 		msg := make(map[string]string, 0)
@@ -344,10 +345,11 @@ func (r *RepositoryDao) UpdateRepositoryMountStatus(statusReq *query.UpdateMount
 		if err != nil {
 			return err
 		}
+		newMsgStr = strings.ReplaceAll(string(msgStr), "'", "''")
 	}
 	sql := fmt.Sprintf("UPDATE repository SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
-		statusReq.Status, string(msgStr), util.GetCurrentTimeStr(), statusReq.Id)
-	if err := r.baseData.BizDB.Exec(sql).Error; err != nil {
+		statusReq.Status, newMsgStr, util.GetCurrentTimeStr(), statusReq.Id)
+	if err = r.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}
 	return nil

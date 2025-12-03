@@ -230,7 +230,7 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if repository.Status == consts.StatusCacheJobIng || repository.Status == consts.StatusCacheJobComplete {
 		return myerr.New("当前状态不可执行该操作。")
 	}
-	entity, err := s.dingospeedDao.GetEntity(repository.InstanceId, true)
+	entity, err := s.dingospeedDao.GetEntity(repository.InstanceId, false) // 挂载到公共目录，通过离线模式处理
 	if err != nil {
 		return err
 	}
@@ -249,8 +249,9 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 		RepositoryId: repository.ID,
 		Type:         consts.CacheTypeMount,
 		InstanceId:   repository.InstanceId,
-		Org:          repository.Org, Repo: repository.Repo,
-		Datatype: repository.Datatype,
+		Org:          repository.Org,
+		Repo:         repository.Repo,
+		Datatype:     repository.Datatype,
 	}
 	b, err := sonic.Marshal(createCacheJobReq)
 	if err != nil {
