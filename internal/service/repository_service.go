@@ -257,6 +257,14 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if err != nil {
 		return err
 	}
+
+	authHeaders := make(map[string]string)
+	if repoReq.Token != "" {
+		authHeaders["Authorization"] = fmt.Sprintf("Bearer %s", repoReq.Token)
+	} else {
+		authHeaders = s.hfTokenDao.GetHeaders()
+	}
+
 	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, s.hfTokenDao.GetHeaders())
 	if err != nil {
 		return err
