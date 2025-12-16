@@ -62,7 +62,7 @@ func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSi
 	}
 	jobIds := make([]int64, 0)
 	for _, job := range cacheJobs {
-		if job.Status == consts.StatusCacheJobIng {
+		if job.Status == consts.RunningStatusJobIng {
 			jobIds = append(jobIds, job.ID)
 		}
 	}
@@ -156,7 +156,7 @@ func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 	if cacheJob == nil {
 		return myerr.New(fmt.Sprintf("任务不存在。"))
 	}
-	if cacheJob.Status != consts.StatusCacheJobIng {
+	if cacheJob.Status != consts.RunningStatusJobIng {
 		return myerr.New(fmt.Sprintf("job is not running, Can't be stopped.%d", cacheJob.Status))
 	}
 	entity, err := c.dingospeedDao.GetEntity(jobStatusReq.InstanceId, true)
@@ -166,7 +166,7 @@ func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 	if entity == nil {
 		return myerr.New("该区域dingspeed未注册。")
 	}
-	err = c.cacheJobDao.UpdateCacheStatus(&query.UpdateJobStatusReq{Id: jobStatusReq.Id, Status: consts.StatusCacheJobStopping})
+	err = c.cacheJobDao.UpdateCacheStatus(&query.UpdateJobStatusReq{Id: jobStatusReq.Id, Status: consts.RunningStatusJobStopping})
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,9 @@ func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 	if cacheJob == nil {
 		return myerr.New(fmt.Sprintf("job is not exist.jobId:%d", resumeCacheJobReq.Id))
 	}
-	if cacheJob.Status != consts.StatusCacheJobBreak {
+	if cacheJob.Status != consts.RunningStatusJobBreak &&
+		cacheJob.Status != consts.RunningStatusJobStop &&
+		cacheJob.Status != consts.RunningStatusJobWait {
 		return myerr.New("当前状态不可执行该操作。")
 	}
 	entity, err := c.dingospeedDao.GetEntity(resumeCacheJobReq.InstanceId, true)
@@ -235,7 +237,7 @@ func (c *CacheJobService) DeleteCacheJob(id int64) error {
 	if cacheJob == nil {
 		return myerr.New(fmt.Sprintf("记录不存在。"))
 	}
-	if cacheJob.Status == consts.StatusCacheJobIng || cacheJob.Status == consts.StatusCacheJobComplete {
+	if cacheJob.Status == consts.RunningStatusJobIng || cacheJob.Status == consts.RunningStatusJobComplete {
 		return myerr.New(fmt.Sprintf("当前缓存任务不能删除。"))
 	}
 	return c.cacheJobDao.Delete(id)

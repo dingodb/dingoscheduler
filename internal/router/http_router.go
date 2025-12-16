@@ -55,10 +55,11 @@ func (r *HttpRouter) initRouter() {
 	if config.SysConfig.EnableMetric() {
 		r.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
-	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler) // 持久化仓库
-	r.echo.GET("/api/refreshToken", r.managerHandler.RefreshToken)       // 持久化仓库
-	r.repositoryRouter()                                                 // repository接口
-	r.cacheJobRouter()                                                   // 模型缓存
+	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler)   // 持久化仓库
+	r.echo.GET("/api/refreshToken", r.managerHandler.RefreshToken)         // 刷新默认token
+	r.echo.POST("/api/execWaitTask", r.managerHandler.ExecWaitTaskHandler) // 执行等待中的缓存下载任务和挂载模型任务
+	r.repositoryRouter()                                                   // repository接口
+	r.cacheJobRouter()                                                     // 模型缓存
 }
 
 func (r *HttpRouter) repositoryRouter() {

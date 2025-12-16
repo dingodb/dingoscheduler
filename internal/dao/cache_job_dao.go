@@ -21,7 +21,6 @@ import (
 	"dingoscheduler/internal/data"
 	"dingoscheduler/internal/model"
 	"dingoscheduler/internal/model/query"
-	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/consts"
 	"dingoscheduler/pkg/util"
 
@@ -78,38 +77,6 @@ func (c *CacheJobDao) GetCacheJob(condition *query.CacheJobQuery) (*model.CacheJ
 	return nil, nil
 }
 
-func (c *CacheJobDao) RemoteRequestPathsInfo(domain, dataType, org, repo, revision, token string, fileNames []string) ([]common.PathsInfo, error) {
-	var reqUri = "/api/getPathInfo"
-	headers := map[string]string{}
-	if token != "" {
-		headers["authorization"] = fmt.Sprintf("Bearer %s", token)
-	}
-	query := query.PathInfoQuery{
-		Datatype:  dataType,
-		Org:       org,
-		Repo:      repo,
-		Revision:  revision,
-		Token:     token,
-		FileNames: fileNames,
-	}
-	b, err := sonic.Marshal(query)
-	if err != nil {
-		return nil, err
-	}
-	response, err := util.RetryRequest(func() (*common.Response, error) {
-		return util.PostForDomain(domain, reqUri, "application/json", b, headers)
-	})
-	if err != nil {
-		return nil, err
-	}
-	ret := make([]common.PathsInfo, 0)
-	err = sonic.Unmarshal(response.Body, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
 func (c *CacheJobDao) UpdateCacheStatus(statusReq *query.UpdateJobStatusReq) error {
 	var (
 		newMsgStr string
@@ -142,7 +109,7 @@ func (c *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq
 	if err != nil {
 		return err
 	}
-	if jobStatusReq.Status == consts.StatusCacheJobComplete {
+	if jobStatusReq.Status == consts.RunningStatusJobComplete {
 		err = c.repositoryDao.PersistRepo(&query.PersistRepoReq{InstanceIds: []string{jobStatusReq.InstanceId},
 			Org: jobStatusReq.Org, Repo: jobStatusReq.Repo, OffVerify: true})
 		if err != nil {
@@ -153,15 +120,6 @@ func (c *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq
 }
 func (c *CacheJobDao) Delete(id int64) error {
 	if err := c.baseData.BizDB.Where("id = ?", id).Delete(&model.CacheJob{}).Error; err != nil {
-		return err
-	}
-	return nil
-}
-
-func (c *CacheJobDao) UpdateMountCachePid(mountCachePidReq *query.UpdateMountCachePidReq) error {
-	sql := fmt.Sprintf("UPDATE mount_cache_job SET shell_pid = %d, updated_at = '%s' WHERE id = %d",
-		mountCachePidReq.Pid, util.GetCurrentTimeStr(), mountCachePidReq.Id)
-	if err := c.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}
 	return nil
@@ -199,4 +157,23 @@ func (c *CacheJobDao) ListCacheJob(condition *query.CacheJobQuery) ([]*model.Cac
 		return nil, 0, err
 	}
 	return cacheJobs, count, nil
+}
+
+func (c *CacheJobDao) GetUnCacheJob(instanceId string, ids []int, runningStatus []int32, limit int) ([]*model.CacheJob, error) {
+	cacheJobs := make([]*model.CacheJob, 0)
+	db := c.baseData.BizDB.Table("cache_job t1")
+	if instanceId != "" {
+		db.Where("t1.instance_id = ?", instanceId)
+	}
+	if len(ids) > 0 {
+		db.Where("t1.id in (?)", ids)
+	}
+	if len(runningStatus) > 0 {
+		db.Where("t1.status in (?)", runningStatus)
+	}
+	if limit > 0 {
+		db.Limit(limit)
+	}
+	err := db.Find(&cacheJobs).Error // 中断或等待中的
+	return cacheJobs, err
 }

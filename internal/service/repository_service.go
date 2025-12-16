@@ -227,7 +227,7 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if repository == nil {
 		return myerr.New(fmt.Sprintf("记录不存在。编号：%d", repoReq.Id))
 	}
-	if repository.Status == consts.StatusCacheJobIng || repository.Status == consts.StatusCacheJobComplete {
+	if repository.Status == consts.RunningStatusJobIng || repository.Status == consts.RunningStatusJobComplete {
 		return myerr.New("当前状态不可执行该操作。")
 	}
 	entity, err := s.dingospeedDao.GetEntity(repository.InstanceId, false) // 挂载到公共目录，通过离线模式处理
@@ -240,7 +240,7 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
 	if err = s.repositoryDao.UpdateRepositoryMountStatus(&query.UpdateMountStatusReq{
 		Id:     repository.ID,
-		Status: consts.StatusCacheJobIng,
+		Status: consts.RunningStatusJobIng,
 	}); err != nil {
 		zap.S().Errorf("UpdateRepositoryMountStatus err.%v", err)
 		return myerr.New("更新状态错误。")

@@ -354,3 +354,22 @@ func (r *RepositoryDao) UpdateRepositoryMountStatus(statusReq *query.UpdateMount
 	}
 	return nil
 }
+
+func (r *RepositoryDao) GetUnmountRepository(instanceId string, ids []int, runningStatus []int32, limit int) ([]*model.Repository, error) {
+	repositories := make([]*model.Repository, 0)
+	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.datatype, t1.org, t1.repo, t1.org_repo, t1.status")
+	if instanceId != "" {
+		db.Where("t1.instance_id = ?", instanceId)
+	}
+	if len(ids) > 0 {
+		db.Where("t1.id in (?)", ids)
+	}
+	if len(runningStatus) > 0 {
+		db.Where("t1.status in (?)", runningStatus)
+	}
+	if limit > 0 {
+		db.Limit(limit)
+	}
+	err := db.Find(&repositories).Error // 中断或等待中的
+	return repositories, err
+}

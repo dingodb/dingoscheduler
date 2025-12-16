@@ -7,6 +7,7 @@ import (
 	"dingoscheduler/internal/dao"
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/pkg/config"
+	"dingoscheduler/pkg/consts"
 
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
@@ -16,17 +17,22 @@ var once sync.Once
 
 type SysService struct {
 	repositoryDao *dao.RepositoryDao
+	cacheJobDao   *dao.CacheJobDao
 }
 
-func NewSysService(repositoryDao *dao.RepositoryDao) *SysService {
+func NewSysService(repositoryDao *dao.RepositoryDao, cacheJobDao *dao.CacheJobDao) *SysService {
 	sysSvc := &SysService{}
 	sysSvc.repositoryDao = repositoryDao
+	sysSvc.cacheJobDao = cacheJobDao
 	once.Do(
 		func() {
 			if config.SysConfig.GetEnablePersistRepo() {
 				go sysSvc.startPersistRepo()
 			}
 		})
+	if err := sysSvc.repairJobRunStatus(); err != nil {
+		panic(err)
+	}
 	return sysSvc
 }
 
@@ -57,4 +63,34 @@ func (s SysService) startPersistRepo() {
 	c.Start()
 	defer c.Stop()
 	select {}
+}
+
+func (s SysService) repairJobRunStatus() error {
+	if unCacheJobs, err := s.cacheJobDao.GetUnCacheJob("", []int{}, []int32{consts.RunningStatusJobStopping}, 0); err != nil {
+		zap.S().Errorf("GetUnmountRepository err.%v", err)
+	} else {
+		for _, i := range unCacheJobs {
+			err = s.cacheJobDao.UpdateStatusAndRepo(&query.UpdateJobStatusReq{
+				Id:     i.ID,
+				Status: consts.RunningStatusJobStop,
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if repositories, err := s.repositoryDao.GetUnmountRepository("", []int{}, []int32{consts.RunningStatusJobStopping}, 0); err != nil {
+		zap.S().Errorf("GetUnmountRepository err.%v", err)
+	} else {
+		for _, i := range repositories {
+			err = s.repositoryDao.UpdateRepositoryMountStatus(&query.UpdateMountStatusReq{
+				Id:     i.ID,
+				Status: consts.RunningStatusJobStop,
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

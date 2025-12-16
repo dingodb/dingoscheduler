@@ -118,6 +118,13 @@ type RepositoryReq struct {
 	Token string `json:"token"`
 }
 
+type WaitTaskReq struct {
+	InstanceId string `json:"instanceId"`
+	Ids        []int  `json:"ids"`
+	Type       int    `json:"type"`
+	Limit      int    `json:"limit"`
+}
+
 type TagQuery struct {
 	Id       string
 	Types    []string
