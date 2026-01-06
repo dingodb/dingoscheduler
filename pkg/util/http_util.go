@@ -21,20 +21,18 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/config"
-	"dingoscheduler/pkg/consts"
 
 	"github.com/avast/retry-go"
 	"go.uber.org/zap"
 )
 
 var (
-	reqTimeout   = 0 * time.Second
+	reqTimeout   = 10 * time.Second
 	simpleClient *http.Client
 	proxyClient  *http.Client
 	simpleOnce   sync.Once
@@ -171,55 +169,8 @@ func doGet(client *http.Client, targetURL string, headers map[string]string) (*c
 	}, nil
 }
 
-func GetStream(domain, uri string, headers map[string]string, f func(r *http.Response) error) error {
-	var (
-		client *http.Client
-		err    error
-	)
-	if IsInnerDomain(domain) {
-		client, err = NewHTTPClient()
-	} else {
-		domain, client, err = constructClient()
-	}
-	if err != nil {
-		return fmt.Errorf("construct http client err: %v", err)
-	}
-	requestURL := fmt.Sprintf("%s%s", domain, uri)
-	return doGetStream(client, requestURL, headers, f)
-}
-
-func doGetStream(client *http.Client, targetURL string, headers map[string]string, f func(r *http.Response) error) error {
-	escapedURL := strings.ReplaceAll(targetURL, "#", "%23")
-	req, err := http.NewRequest("GET", escapedURL, nil)
-	if err != nil {
-		return fmt.Errorf("创建GET请求失败: %v", err)
-	}
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	respHeaders := make(map[string]interface{})
-	for key, value := range resp.Header {
-		respHeaders[key] = value
-	}
-	return f(resp)
-}
-
 func PostForDomain(domain, requestUri string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
 	client, err := NewHTTPClient()
-	if err != nil {
-		return nil, fmt.Errorf("construct http client err: %v", err)
-	}
-	requestURL := fmt.Sprintf("%s%s", domain, requestUri)
-	return doPost(client, requestURL, contentType, data, headers)
-}
-
-func Post(requestUri string, contentType string, data []byte, headers map[string]string) (*common.Response, error) {
-	domain, client, err := constructClient()
 	if err != nil {
 		return nil, fmt.Errorf("construct http client err: %v", err)
 	}
@@ -266,8 +217,4 @@ func doPost(client *http.Client, targetURL string, contentType string, data []by
 		Headers:    respHeaders,
 		Body:       body,
 	}, nil
-}
-
-func IsInnerDomain(url string) bool {
-	return !strings.Contains(url, consts.Huggingface) && !strings.Contains(url, consts.Hfmirror)
 }
