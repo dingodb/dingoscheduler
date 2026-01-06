@@ -265,7 +265,7 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 		authHeaders = s.hfTokenDao.GetHeaders()
 	}
 
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, s.hfTokenDao.GetHeaders())
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, authHeaders)
 	if err != nil {
 		return err
 	}

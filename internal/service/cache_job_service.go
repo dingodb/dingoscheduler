@@ -177,7 +177,10 @@ func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 	}
 	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/stop", "application/json", b, c.hfTokenDao.GetHeaders())
 	if err != nil {
-		return err
+		err = c.cacheJobDao.UpdateCacheStatus(&query.UpdateJobStatusReq{Id: jobStatusReq.Id, Status: consts.RunningStatusJobStop})
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
