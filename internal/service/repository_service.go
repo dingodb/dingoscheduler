@@ -238,13 +238,6 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 		return myerr.New("该区域dingspeed未注册。")
 	}
 	speedDomain := fmt.Sprintf("http://%s:%d", entity.Host, entity.Port)
-	if err = s.repositoryDao.UpdateRepositoryMountStatus(&query.UpdateMountStatusReq{
-		Id:     repository.ID,
-		Status: consts.RunningStatusJobIng,
-	}); err != nil {
-		zap.S().Errorf("UpdateRepositoryMountStatus err.%v", err)
-		return myerr.New("更新状态错误。")
-	}
 	createCacheJobReq := &query.CreateCacheJobReq{
 		RepositoryId: repository.ID,
 		Type:         consts.CacheTypeMount,
@@ -257,17 +250,23 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if err != nil {
 		return err
 	}
-
 	authHeaders := make(map[string]string)
 	if repoReq.Token != "" {
 		authHeaders["Authorization"] = fmt.Sprintf("Bearer %s", repoReq.Token)
 	} else {
 		authHeaders = s.hfTokenDao.GetHeaders()
 	}
-
+	var status int32 = consts.RunningStatusJobIng
 	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, authHeaders)
 	if err != nil {
-		return err
+		status = consts.RunningStatusJobStop
+	}
+	if err = s.repositoryDao.UpdateRepositoryMountStatus(&query.UpdateMountStatusReq{
+		Id:     repository.ID,
+		Status: status,
+	}); err != nil {
+		zap.S().Errorf("UpdateRepositoryMountStatus err.%v", err)
+		return myerr.New("更新状态错误。")
 	}
 	return nil
 }
