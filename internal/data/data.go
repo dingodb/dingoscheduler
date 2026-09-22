@@ -14,9 +14,11 @@
 package data
 
 import (
+	"dingoscheduler/internal/authority"
 	"errors"
 	"fmt"
 
+	"dingoscheduler/internal/model"
 	"dingoscheduler/pkg/config"
 	"dingoscheduler/pkg/consts"
 	myorm "dingoscheduler/pkg/gorm"
@@ -60,6 +62,13 @@ func NewBaseData(conf *config.Config) (*BaseData, func(), error) {
 	var debug = conf.Server.Mode != "release"
 	if debug {
 		bizClient = bizClient.Debug()
+	}
+	// First-phase uploaded inventory is an additive schema. AutoMigrate only
+	// creates/extends these dedicated tables and never migrates legacy remote
+	// repository or download records.
+	if err = bizClient.AutoMigrate(&model.NodeEndpoint{}, &model.UploadInventoryState{}, &model.UploadInventoryFile{}, &model.UploadInventoryHolding{}, &authority.Definition{}, &authority.Receipt{}); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("migrate uploaded inventory schema: %w", err)
 	}
 	return &BaseData{
 		BizDB: bizClient,

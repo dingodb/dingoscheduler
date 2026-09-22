@@ -23,6 +23,7 @@ import (
 	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/consts"
 	myerr "dingoscheduler/pkg/error"
+	"dingoscheduler/pkg/repository"
 	"dingoscheduler/pkg/util"
 
 	"github.com/bytedance/sonic"
@@ -119,7 +120,11 @@ func (c *CacheJobService) getJobRealtimeStatus(jobIds []int64, instanceId string
 
 func (c *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJobReq) (*common.Response, error) {
 	zap.S().Debugf("Cache instanceId:%s, %s/%s", createCacheJobReq.InstanceId, createCacheJobReq.Org, createCacheJobReq.Repo)
-	lock := c.lockDao.GetCacheJobReqLock(createCacheJobReq.OrgRepo)
+	key, err := repository.FromWire(createCacheJobReq.Datatype, createCacheJobReq.Org, createCacheJobReq.Repo)
+	if err != nil {
+		return nil, err
+	}
+	lock := c.lockDao.GetCacheJobReqLock(key.LockKey("job", createCacheJobReq.InstanceId, fmt.Sprint(createCacheJobReq.Type)))
 	lock.Lock()
 	defer lock.Unlock()
 	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: createCacheJobReq.Type,
@@ -155,6 +160,9 @@ func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 	}
 	if cacheJob == nil {
 		return myerr.New(fmt.Sprintf("任务不存在。"))
+	}
+	if cacheJob.InstanceId != jobStatusReq.InstanceId {
+		return myerr.New("task instance mismatch")
 	}
 	if cacheJob.Status != consts.RunningStatusJobIng {
 		return myerr.New(fmt.Sprintf("job is not running, Can't be stopped.%d", cacheJob.Status))
@@ -195,6 +203,9 @@ func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 	}
 	if cacheJob == nil {
 		return myerr.New(fmt.Sprintf("job is not exist.jobId:%d", resumeCacheJobReq.Id))
+	}
+	if cacheJob.InstanceId != resumeCacheJobReq.InstanceId {
+		return myerr.New("task instance mismatch")
 	}
 	if cacheJob.Status != consts.RunningStatusJobBreak &&
 		cacheJob.Status != consts.RunningStatusJobStop &&

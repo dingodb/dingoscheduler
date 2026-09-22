@@ -36,9 +36,7 @@ func (r *RepositoryTagDao) SaveBySql(tx *gorm.DB, repo *model.RepositoryTag) (in
 
 func (r *RepositoryTagDao) BatchSave(tx *gorm.DB, repositoryTags []*model.RepositoryTag) error {
 	for _, repositoryTag := range repositoryTags {
-		recordSql := fmt.Sprintf("INSERT INTO repository_tag (repo_id, tag_id) VALUES(%d, '%s')",
-			repositoryTag.RepoId, repositoryTag.TagId)
-		result := tx.Exec(recordSql)
+		result := tx.Exec("INSERT INTO repository_tag (repo_id, tag_id) VALUES(?, ?)", repositoryTag.RepoId, repositoryTag.TagId)
 		if result.Error != nil {
 			// 出错回滚事务
 			zap.S().Error("批量插入失败: %v", result.Error)

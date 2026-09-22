@@ -1,6 +1,9 @@
 package dto
 
 type Repository struct {
+	Namespace    string   `json:"namespace,omitempty"`
+	Repo         string   `json:"repo,omitempty"`
+	Datatype     string   `json:"repoType,omitempty"`
 	ID           int64    `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	Org          string   `gorm:"column:org;not null" json:"org"`
 	OrgRepo      string   `gorm:"column:org_repo;not null" json:"orgRepo"`

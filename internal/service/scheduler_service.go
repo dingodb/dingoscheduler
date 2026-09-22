@@ -17,6 +17,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -28,10 +29,14 @@ import (
 	"dingoscheduler/pkg/config"
 	"dingoscheduler/pkg/consts"
 	myerr "dingoscheduler/pkg/error"
+	"dingoscheduler/pkg/nodehealth"
 	pb "dingoscheduler/pkg/proto/manager"
+	"dingoscheduler/pkg/repository"
 	"dingoscheduler/pkg/util"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -48,6 +53,7 @@ type SchedulerService struct {
 	repositoryDao       *dao.RepositoryDao
 	cacheJobDao         *dao.CacheJobDao
 	scheudlerLock       sync.Mutex
+	writeMu             sync.Mutex
 }
 
 func NewSchedulerService(
@@ -69,6 +75,15 @@ func NewSchedulerService(
 }
 
 func (s *SchedulerService) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
+	for _, raw := range []string{req.ManagementUrl, req.DownloadUrl} {
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(raw) > 2048 {
+			return nil, status.Error(codes.InvalidArgument, "invalid advertised URL")
+		}
+	}
 	if req.InstanceId == "" || req.Host == "" || req.Port <= 0 {
 		return nil, fmt.Errorf("invalid parameter")
 	}
@@ -97,6 +112,11 @@ func (s *SchedulerService) Register(ctx context.Context, req *pb.RegisterRequest
 		}
 		dingospeed.ID = int32(id)
 	}
+	if req.ManagementUrl != "" || req.DownloadUrl != "" {
+		if err := s.dingospeedDao.SaveNodeEndpoint(ctx, dingospeed.ID, req.ManagementUrl, req.DownloadUrl); err != nil {
+			return nil, err
+		}
+	}
 	s.updateCache(req.InstanceId, req.Online)
 	zap.S().Infof("register success.instanceId:%s, host:%s, port:%d, online:%v", req.InstanceId, req.Host, req.Port, req.Online)
 	return &pb.RegisterResponse{
@@ -106,8 +126,12 @@ func (s *SchedulerService) Register(ctx context.Context, req *pb.RegisterRequest
 }
 
 func (s *SchedulerService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*emptypb.Empty, error) {
+	encoded, err := nodehealth.Encode(req.Health)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	if req.Id > 0 {
-		err := s.dingospeedDao.HeartbeatUpdate(req.Id)
+		err := s.dingospeedDao.HeartbeatHealth(ctx, req, encoded, time.Now())
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +139,19 @@ func (s *SchedulerService) Heartbeat(ctx context.Context, req *pb.HeartbeatReque
 	} else {
 		return nil, myerr.New(fmt.Sprintf("speed id is unlawful.id = %d", req.Id))
 	}
-	return nil, nil
+	return &emptypb.Empty{}, nil
+}
+
+func (s *SchedulerService) NodeHealth(ctx context.Context, after int32, limit int) ([]dao.NodeHealthView, error) {
+	return s.dingospeedDao.ListNodeHealth(ctx, after, limit, time.Now())
+}
+
+func (s *SchedulerService) NodeEndpoints(ctx context.Context, ids []int32) (map[int32]model.NodeEndpoint, error) {
+	return s.dingospeedDao.NodeEndpoints(ctx, ids)
+}
+
+func (s *SchedulerService) NodeRepositories(ctx context.Context, nodeID int32, after int64, limit int) (*dao.NodeRepositoryPage, error) {
+	return s.dingospeedDao.ListNodeRepositories(ctx, nodeID, after, limit)
 }
 
 func (s *SchedulerService) updateCache(instanceId string, online bool) {
@@ -165,7 +201,19 @@ func (s *SchedulerService) getApiLock(apiPath string) *sync.RWMutex {
 }
 
 func (s *SchedulerService) SchedulerFile(ctx context.Context, req *pb.SchedulerFileRequest) (*pb.SchedulerFileResponse, error) {
-	schedulerFilePath := fmt.Sprintf("scheduler/%s/%s/%s/%s", req.DataType, req.Org, req.Repo, req.Etag)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	key, err := repository.FromWire(req.DataType, req.Org, req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	if req.InstanceId == "" || req.Etag == "" {
+		return nil, fmt.Errorf("instance and etag are required")
+	}
+	if err := repository.ValidatePath(req.Name, true); err != nil {
+		return nil, err
+	}
+	schedulerFilePath := key.LockKey("scheduler", req.Name, req.Etag)
 	lock := s.getApiLock(schedulerFilePath)
 	lock.Lock()
 	defer lock.Unlock()
@@ -291,7 +339,25 @@ func (s *SchedulerService) SyncFileProcess(ctx context.Context, req *pb.SyncFile
 }
 
 func (s *SchedulerService) SingleFileProcess(processEntry *pb.FileProcessEntry) (*emptypb.Empty, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	key, err := repository.FromWire(processEntry.DataType, processEntry.Org, processEntry.Repo)
+	if err != nil {
+		return nil, err
+	}
+	if processEntry.InstanceId == "" || processEntry.Etag == "" {
+		return nil, fmt.Errorf("instance and etag are required")
+	}
+	if err := repository.ValidatePath(processEntry.Name, true); err != nil {
+		return nil, err
+	}
+	lock := s.getApiLock(key.LockKey("scheduler", processEntry.Name, processEntry.Etag))
+	lock.Lock()
+	defer lock.Unlock()
 	if processEntry.ProcessId != 0 {
+		if err := s.modelFileProcessDao.ValidateProcessIdentity(processEntry); err != nil {
+			return nil, err
+		}
 		if err := s.modelFileProcessDao.ReportFileProcess(&pb.FileProcessRequest{
 			ProcessId: processEntry.ProcessId,
 			StaPos:    processEntry.StartPos,
@@ -364,6 +430,14 @@ func (s *SchedulerService) ReportFileProcess(ctx context.Context, req *pb.FilePr
 }
 
 func (s *SchedulerService) DeleteByEtagsAndFields(ctx context.Context, req *pb.DeleteByEtagsAndFieldsRequest) (*emptypb.Empty, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := repository.FromWire(req.Datatype, req.Org, req.Repo); err != nil {
+		return nil, err
+	}
+	if req.InstanceID == "" {
+		return nil, fmt.Errorf("instance is required")
+	}
 	recordIds, err := s.modelFileRecordDao.GetIDsByEtagsOrFields(req.Etag, req.Datatype, req.Org, req.Repo, req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("查询recordIds失败: %w", err)
@@ -387,6 +461,12 @@ func (s *SchedulerService) DeleteByEtagsAndFields(ctx context.Context, req *pb.D
 }
 
 func (s *SchedulerService) CreateCacheJob(ctx context.Context, req *pb.CreateCacheJobReq) (*pb.CreateCacheJobResp, error) {
+	if _, err := repository.FromWire(req.Datatype, req.Org, req.Repo); err != nil {
+		return nil, err
+	}
+	if req.InstanceId == "" {
+		return nil, fmt.Errorf("instance is required")
+	}
 	cacheJob := &model.CacheJob{
 		Type:        req.Type,
 		InstanceId:  req.InstanceId,

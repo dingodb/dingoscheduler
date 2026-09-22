@@ -21,6 +21,7 @@ import (
 	"dingoscheduler/internal/model"
 	"dingoscheduler/internal/model/query"
 	pb "dingoscheduler/pkg/proto/manager"
+	"dingoscheduler/pkg/repository"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -37,74 +38,38 @@ func NewModelFileRecordDao(data *data.BaseData) *ModelFileRecordDao {
 }
 
 func (d *ModelFileRecordDao) BatchSave(records []model.ModelFileRecord) error {
-	tx := d.baseData.BizDB.Begin()
-	if tx.Error != nil {
-		zap.S().Error("开启事务失败: %v", tx.Error)
-		return tx.Error
-	}
-	db, err := tx.DB()
-	if err != nil {
-		tx.Rollback()
-		zap.S().Error("从事务获取 DB 实例失败: %v", err)
-		return err
-	}
-	for _, record := range records {
-		sql := fmt.Sprintf(
-			"INSERT INTO model_file_record(datatype, org, repo, name, etag, file_size) VALUES ('%s','%s','%s','%s','%s',%d)",
-			record.Datatype,
-			record.Org,
-			record.Repo,
-			record.Name,
-			record.Etag,
-			record.FileSize,
-		)
-		result, err := db.Exec(sql)
-		if err != nil {
-			tx.Rollback()
-			zap.S().Error("批量插入失败: %v, SQL: %s", err, sql)
-			return err
+	return d.baseData.BizDB.Transaction(func(tx *gorm.DB) error {
+		for i := range records {
+			if _, err := SaveRecordBySql(tx, &records[i]); err != nil {
+				return err
+			}
 		}
-		_, _ = result.LastInsertId()
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		tx.Rollback()
-		zap.S().Fatalf("事务提交失败: %v", err)
-		return err
-	}
-	return nil
+		return nil
+	})
 }
 
 func SaveRecordBySql(tx *gorm.DB, record *model.ModelFileRecord) (int64, error) {
-	recordSql := fmt.Sprintf("INSERT INTO model_file_record(datatype, org, repo, name, etag, file_size) VALUES ('%s','%s','%s','%s','%s',%d)", record.Datatype, record.Org, record.Repo, record.Name, record.Etag, record.FileSize)
-	db, err := tx.DB()
-	if err != nil {
+	if _, err := repository.FromWire(record.Datatype, record.Org, record.Repo); err != nil {
 		return 0, err
 	}
-	result, err := db.Exec(recordSql)
-	if err != nil {
+	if err := tx.Omit("CreatedAt", "UpdatedAt").Create(record).Error; err != nil {
 		return 0, err
 	}
-	return result.LastInsertId()
+	return record.ID, nil
 }
 
 func (d *ModelFileRecordDao) FirstModelFileRecord(condition *query.ModelFileRecordQuery) (*model.ModelFileRecord, error) {
+	if _, err := repository.FromWire(condition.Datatype, condition.Org, condition.Repo); err != nil {
+		return nil, err
+	}
 	var records []*model.ModelFileRecord
 	db := d.baseData.BizDB.Model(&model.ModelFileRecord{}).Select("id")
-	if condition.Datatype != "" {
-		db.Where("datatype = ?", condition.Datatype)
-	}
-	if condition.Org != "" {
-		db.Where("org = ?", condition.Org)
-	}
-	if condition.Repo != "" {
-		db.Where("repo = ?", condition.Repo)
+	db = db.Where("datatype = ? AND org = ? AND repo = ?", condition.Datatype, condition.Org, condition.Repo)
+	if condition.Etag != "" {
+		db = db.Where("etag = ?", condition.Etag)
 	}
 	if condition.FileName != "" {
-		db.Where("name = ?", condition.FileName)
-	}
-	if condition.Etag != "" {
-		db.Where("etag = ?", condition.Etag)
+		db = db.Where("name = ?", condition.FileName)
 	}
 	if err := db.Find(&records).Error; err != nil {
 		return nil, err
@@ -198,33 +163,26 @@ func (d *ModelFileRecordDao) FindDistinctOrgs() ([]string, error) {
 
 // GetIDsByEtagsOrFields 根据Etag列表查询，或者根据Datatype、Org、Repo、Name四者都匹配的条件查询对应的ID
 func (d *ModelFileRecordDao) GetIDsByEtagsOrFields(etag, datatype, org, repo, name string) ([]int64, error) {
+	// Content IDs are repository-scoped. An etag alone must never select another
+	// namespace, nor may a filename OR broaden an exact content-ID deletion.
+	if _, err := repository.FromWire(datatype, org, repo); err != nil {
+		return nil, err
+	}
+	if etag == "" && name == "" {
+		return nil, fmt.Errorf("etag or file path is required")
+	}
 	var ids []int64
-	query := d.baseData.BizDB.Model(&model.ModelFileRecord{})
-
-	hasEtagCondition := etag != ""
-	hasFieldCondition := datatype != "" && org != "" && repo != "" && name != ""
-
-	if !hasEtagCondition && !hasFieldCondition {
-		return []int64{}, nil
+	db := d.baseData.BizDB.Model(&model.ModelFileRecord{}).
+		Where("datatype = ? AND org = ? AND repo = ?", datatype, org, repo)
+	if etag != "" {
+		db = db.Where("etag = ?", etag)
 	}
-
-	if hasEtagCondition {
-		query = query.Where("etag = ?", etag)
+	if name != "" {
+		db = db.Where("name = ?", name)
 	}
-
-	if hasFieldCondition {
-		condition := "datatype = ? AND org = ? AND repo = ? AND name = ?"
-		if hasEtagCondition {
-			query = query.Or(condition, datatype, org, repo, name)
-		} else {
-			query = query.Where(condition, datatype, org, repo, name)
-		}
+	if err := db.Pluck("id", &ids).Error; err != nil {
+		return nil, err
 	}
-
-	if err := query.Pluck("id", &ids).Error; err != nil {
-		return nil, fmt.Errorf("查询ID失败: %w", err)
-	}
-
 	return ids, nil
 }
 
@@ -270,8 +228,8 @@ func (d *ModelFileRecordDao) ExistRecords(records []model.ModelFileRecord) ([]mo
 	db := d.baseData.BizDB.Model(&model.ModelFileRecord{}).Where("1 = 0")
 
 	for _, r := range records {
-		db = db.Or("etag = ? AND name = ? AND org = ? AND repo = ?",
-			r.Etag, r.Name, r.Org, r.Repo)
+		db = db.Or("datatype = ? AND etag = ? AND name = ? AND org = ? AND repo = ?",
+			r.Datatype, r.Etag, r.Name, r.Org, r.Repo)
 	}
 
 	if err := db.Find(&existing).Error; err != nil {

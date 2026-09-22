@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>dingoscheduler · 节点与仓库</title>
+<style>
+body{font:15px/1.65 system-ui,sans-serif;background:#f4f6f8;color:#203040;margin:0}main{max-width:1150px;margin:36px auto;padding:0 24px}h1{font-size:26px;margin:0}.muted{color:#607080}form,.node{background:white;padding:20px;border:1px solid #dce3ea;border-radius:10px;margin:18px 0}input,button{font:inherit;padding:8px 12px;border:1px solid #abb9c7;border-radius:6px}button{cursor:pointer;background:#183f64;color:white}label{margin-right:12px}#message{padding:12px;background:#e8eef5;border-radius:6px}h2{margin:0;font-size:19px}.bad{color:#a33324}.ok{color:#167344}.unknown{color:#735e31}.meta{display:flex;gap:20px;flex-wrap:wrap}.cap{display:inline-block;margin:12px 24px 6px 0}details{margin-top:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}table{border-collapse:collapse;width:100%;margin-top:12px}th,td{text-align:left;padding:7px;border-bottom:1px solid #e5e9ed}#next{margin-bottom:30px}small{display:block}.node.stale{border-left:4px solid #b65c26}
+</style>
+<style>
+.repo-panel{background:white;padding:20px;border:1px solid #dce3ea;border-radius:10px;margin:24px 0}.repo-scroll{overflow:auto;max-height:480px}.repo-table{min-width:850px}.repo-table th{position:sticky;top:0;background:white}.repo-table td{vertical-align:top}.repo-name{overflow-wrap:anywhere;max-width:260px}.repo-commit{font:12px ui-monospace,monospace;overflow-wrap:anywhere;max-width:150px}.repo-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}button:disabled{opacity:.5;cursor:default}.selected{outline:2px solid #183f64}.repo-errors{max-width:220px;white-space:pre-wrap;overflow-wrap:anywhere}.view-repositories{display:block;margin-top:12px}.scroll-hint{display:none}@media(max-width:700px){.scroll-hint{display:block}.repo-scroll{max-height:400px}}
+</style>
+<main>
+<h1>dingospeed 节点与仓库</h1>
+<p class="muted">选择节点查看运行状态与已入库仓库。仓库列表每 10 秒同步数据库。</p>
+<form id="connect"><button>刷新</button><small class="muted">每 10 秒刷新当前页。</small></form>
+<div id="message" role="status">尚未连接。没有收到数据不能视为正常。</div>
+<section id="repositories" class="repo-panel" aria-labelledby="repo-title">
+<h2 id="repo-title">节点仓库</h2>
+<p class="muted">数据来自 Scheduler 数据库，按实例展示已入库仓库。容量是已记录的逻辑大小，不是磁盘用量；不包含未发布、未入库的缓存。上传仓库展示 main 投影。</p>
+<div id="repo-message" role="status">选择下方节点的“查看仓库”。</div>
+<div id="repo-content" class="repo-scroll"></div>
+<small class="muted scroll-hint">表格可横向滚动，查看版本、容量和挂载状态。</small>
+<div class="repo-actions"><button id="repo-refresh" disabled>刷新仓库</button><button id="repo-prev" disabled>上一页</button><span id="repo-page"></span><button id="repo-next" disabled>下一页</button></div>
+</section>
+<section id="nodes"></section><button id="next" hidden>下一页</button>
+</main>
+<script>
+const byId=id=>document.getElementById(id);
+let after=0,nextAfter=0,busy=false;
+let selectedNode=null,repoAfter='0',repoNext='0',repoHistory=[],repoRequest=0,repoController=null;
+const names={metadata_read:'元数据读取',metadata_write:'元数据写入',stat:'检查文件',read:'读取',mkdir:'创建目录',write:'写入',permission_denied:'权限不足',mount_disconnected:'挂载断连',io_failure:'I/O 错误',path_unavailable:'路径不可访问'};
+const statuses={unknown:'暂无近期证据',observed_healthy:'近期观察正常',unresolved:'存在异常，尚未确认恢复'};
+function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
+function stamp(value){if(!value||value==='0')return '暂无';const date=new Date(typeof value==='number'||/^\d+$/.test(value)?Number(value)*1000:value);return Number.isNaN(date.getTime())?'未知':date.toLocaleString();}
+function render(items){
+ byId('nodes').replaceChildren();
+ for(const n of items){
+  const stale=n.communication!=='connected', card=el('article',undefined,'node'+(stale?' stale':''));
+  card.append(el('h2',n.instanceId+' · '+(n.onlineMode?'在线运行模式':'离线运行模式')));
+  card.append(el('strong',stale?'通信中断，请先恢复通信':'通信正常',stale?'bad':'ok'));
+  card.append(el('div','最近联系：'+stamp(n.receivedAt),'muted'));
+  const view=el('button','查看仓库','view-repositories');view.type='button';view.setAttribute('aria-label','查看 '+n.instanceId+' 的仓库');view.addEventListener('click',()=>selectNode(n));card.append(view);
+  if(selectedNode&&selectedNode.id===n.id)card.classList.add('selected');
+  if(stale)card.append(el('p','以下是最后收到的历史状态，不能代表当前情况。','unknown'));
+  if(!n.reported){card.append(el('p',n.reportError?'状态数据无法解析，不能判断内部是否正常。':'尚未收到内部状态（可能是旧版本或刚注册）。','unknown'));}
+  else{
+   const s=n.snapshot;
+   for(const c of n.capabilities){const box=el('div',undefined,'cap');box.append(el('strong',names[c.capability]||c.capability),el('div',statuses[c.status]||'未知',stale?'unknown':c.status==='unresolved'?'bad':c.status==='observed_healthy'?'ok':'unknown'),el('small','最近观察：'+stamp(c.lastObservation),'muted'),el('small','最近失败：'+stamp(c.lastFailure),'muted'));card.append(box);}
+   card.append(el('div','进程启动：'+stamp(s.started_at)+' · 标识：'+s.process_id,'muted'));
+   const details=el('details');details.append(el('summary','分类错误次数（本进程累计，不表示当前故障数量）'));
+   const table=el('table'),head=el('tr');for(const text of ['操作','错误类型','累计次数'])head.append(el('th',text));table.append(head);
+   for(const e of s.errors||[]){if(!e.count||e.count==='0')continue;const row=el('tr');row.append(el('td',names[e.operation]||e.operation),el('td',names[e.kind]||e.kind),el('td',String(e.count)));table.append(row);}details.append(table);card.append(details);
+  }
+  byId('nodes').append(card);
+ }
+ if(!items.length)byId('nodes').append(el('p','本页没有已注册节点。'));
+}
+function bytes(value){let n=Number(value);if(!Number.isFinite(n)||n<0)return '未知';const units=['B','KiB','MiB','GiB','TiB','PiB'];let u=0;while(n>=1024&&u<units.length-1){n/=1024;u++;}return n.toLocaleString(undefined,{maximumFractionDigits:2})+' '+units[u];}
+function selectNode(node){selectedNode=node;repoAfter='0';repoNext='0';repoHistory=[];byId('repo-title').textContent=node.instanceId+' · 仓库';document.querySelectorAll('.node').forEach(card=>card.classList.toggle('selected',card.querySelector('h2').textContent===node.instanceId+' · '+(node.onlineMode?'在线运行模式':'离线运行模式')));refreshRepositories();byId('repositories').scrollIntoView({behavior:'smooth',block:'start'});}
+function repoButtons(loading){byId('repo-refresh').disabled=!selectedNode;byId('repo-prev').disabled=loading||!repoHistory.length;byId('repo-next').disabled=loading||repoNext==='0';byId('repo-page').textContent=selectedNode?'第 '+(repoHistory.length+1)+' 页':'';}
+async function refreshRepositories(){
+ if(!selectedNode)return;
+ const request=++repoRequest,node=selectedNode,cursor=repoAfter;
+ if(repoController)repoController.abort();repoController=new AbortController();
+ const controller=repoController,timer=setTimeout(()=>controller.abort(),8000);
+ repoButtons(true);byId('repo-message').textContent='正在查询 '+node.instanceId+' 的仓库…';byId('repo-content').replaceChildren();
+ try{
+  const response=await fetch('/api/v1/nodes/'+node.id+'/repositories?after='+encodeURIComponent(cursor)+'&limit=20',{cache:'no-store',signal:controller.signal});
+  if(!response.ok)throw new Error('仓库查询失败（HTTP '+response.status+'）');
+  const data=await response.json();if(request!==repoRequest)return;
+  repoNext=String(data.nextAfter);byId('repo-message').textContent='共 '+data.total+' 条仓库记录 · 已记录容量 '+bytes(data.usedStorage)+' · 查询时间 '+stamp(data.observedAt)+'。节点通信中断时仍可查看数据库记录。';
+  if(!data.items.length){byId('repo-content').append(el('p',cursor==='0'?'此实例暂无已入库仓库。':'本页暂无记录，可返回上一页。'));}
+  else{
+   const table=el('table',undefined,'repo-table'),head=el('thead'),headRow=el('tr');for(const name of ['来源 / namespace','仓库 / 类型','版本 commit','已记录容量','挂载状态','源仓库修改时间'])headRow.append(el('th',name));head.append(headRow);table.append(head);const body=el('tbody');
+   const mount={0:'未挂载',1:'挂载中',2:'挂载异常',3:'挂载完成',4:'正在停止',5:'已停止',6:'等待中'};
+   for(const item of data.items){
+    const row=el('tr'),source=el('td'),name=el('td',undefined,'repo-name'),state=el('td');
+    const label=!item.identityValid?'未识别身份':item.namespace==='huggingface'||item.namespace==='modelscope'?'远端缓存':item.namespace==='datacanvas'?'公司上传':'用户上传';
+    source.append(el('strong',label),el('small',item.namespace||'无 namespace','muted'));name.append(el('strong',item.repo),el('small',item.datatype,'muted'));
+    state.append(el('span',mount[item.mountStatus]||'未知（'+item.mountStatus+'）'));if(item.errorMessage)state.append(el('small',item.errorMessage,'bad repo-errors'));
+    row.append(source,name,el('td',item.commit||'未记录','repo-commit'),el('td',bytes(item.usedStorage)),state,el('td',stamp(item.lastModified)));body.append(row);
+   }
+   table.append(body);byId('repo-content').append(table);
+  }
+ }catch(error){if(request!==repoRequest)return;repoNext='0';byId('repo-content').replaceChildren();byId('repo-message').textContent=(error.name==='AbortError'?'仓库查询超时':error.message)+'。仓库数据暂不可用，请重试。';}
+ finally{clearTimeout(timer);if(request===repoRequest){repoController=null;repoButtons(false);}}
+}
+async function refresh(){
+ if(busy)return;busy=true;
+ try{
+  const response=await fetch('/api/v1/nodes/health?after='+after+'&limit=100',{cache:'no-store',signal:AbortSignal.timeout(8000)});
+  if(!response.ok)throw new Error('查询失败（HTTP '+response.status+'）');
+  const data=await response.json();render(data.items);nextAfter=data.nextAfter;byId('next').hidden=!nextAfter;
+  byId('message').textContent=(data.demo?'本地演示数据 · 不连接任何真实节点。 ':'')+'页面更新于 '+new Date().toLocaleTimeString()+'；重启后计数清零不代表故障恢复。';
+ }catch(error){byId('nodes').replaceChildren();byId('next').hidden=true;byId('message').textContent=error.message+'。当前状态不可用，请检查通信。';}
+ finally{busy=false;}
+}
+byId('connect').addEventListener('submit',event=>{event.preventDefault();if(busy)return;after=0;refresh();});
+byId('next').addEventListener('click',()=>{if(busy)return;after=nextAfter;refresh();});
+byId('repo-refresh').addEventListener('click',refreshRepositories);
+byId('repo-prev').addEventListener('click',()=>{if(!repoHistory.length)return;repoAfter=repoHistory.pop();refreshRepositories();});
+byId('repo-next').addEventListener('click',()=>{if(repoNext==='0')return;repoHistory.push(repoAfter);repoAfter=repoNext;refreshRepositories();});
+setInterval(()=>{refresh();if(!repoController)refreshRepositories();},10000);
+refresh();
+</script>
+</html>

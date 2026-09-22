@@ -11,6 +11,7 @@ type ModelFileRecordQuery struct {
 }
 
 type CreateCacheJobReq struct {
+	Namespace    string `json:"namespace,omitempty"`
 	Type         int32  `json:"type"`
 	AidcCode     string `json:"aidcCode"`
 	InstanceId   string `json:"instanceId"`
@@ -89,6 +90,8 @@ type PathInfoQuery struct {
 }
 
 type PersistRepoReq struct {
+	Datatype    string   `json:"datatype"`
+	Namespace   string   `json:"namespace"`
 	InstanceIds []string `json:"instanceIds"`
 	Org         string   `json:"org"`
 	Repo        string   `json:"repo"`
