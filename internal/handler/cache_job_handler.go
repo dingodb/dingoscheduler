@@ -7,6 +7,7 @@ import (
 	"dingoscheduler/internal/model/query"
 	"dingoscheduler/internal/service"
 	"dingoscheduler/pkg/consts"
+	"dingoscheduler/pkg/repository"
 	"dingoscheduler/pkg/util"
 
 	"github.com/labstack/echo/v4"
@@ -37,13 +38,24 @@ func (handler *CacheJobHandler) CreateCacheJobHandler(c echo.Context) error {
 		zap.S().Errorf("MetaProxyCommon repoType:%s is not exist RepoTypesMapping", createCacheJobReq.Datatype)
 		return util.ErrorRequestParamCN(c)
 	}
-	org, repo := util.SplitOrgRepo(createCacheJobReq.OrgRepo)
-	if org == "" || repo == "" {
-		zap.S().Errorf("MetaProxyCommon org and repo is null")
-		return util.ErrorRepoNotFoundCN(c)
+	if createCacheJobReq.Namespace != "" {
+		if createCacheJobReq.Org != "" || createCacheJobReq.OrgRepo != "" {
+			return util.ErrorRequestParamCN(c)
+		}
+		org, repo, err := (repository.Key{Namespace: createCacheJobReq.Namespace, RepoType: createCacheJobReq.Datatype, Repo: createCacheJobReq.Repo}).Storage()
+		if err != nil {
+			return util.ErrorRequestParamCN(c)
+		}
+		createCacheJobReq.Org, createCacheJobReq.Repo = org, repo
+		createCacheJobReq.OrgRepo = util.GetOrgRepo(org, repo)
+		createCacheJobReq.Namespace = ""
+	} else {
+		org, repo := util.SplitOrgRepo(createCacheJobReq.OrgRepo)
+		if org == "" || repo == "" {
+			return util.ErrorRepoNotFoundCN(c)
+		}
+		createCacheJobReq.Org, createCacheJobReq.Repo = org, repo
 	}
-	createCacheJobReq.Org = org
-	createCacheJobReq.Repo = repo
 	createCacheJobReq.Type = consts.CacheTypePreheat
 	resp, err := handler.cacheJobService.CreateCacheJob(createCacheJobReq)
 	if err != nil {

@@ -44,16 +44,10 @@ func (d *ModelFileProcessDao) Save(process *model.ModelFileProcess) (int64, erro
 }
 
 func SaveProcessBySql(tx *gorm.DB, process *model.ModelFileProcess) (int64, error) {
-	recordSql := fmt.Sprintf("INSERT INTO model_file_process(record_id, instance_id, offset_num, status, master_instance_id) VALUES (%d, '%s',%d,%d,'%s')", process.RecordID, process.InstanceID, process.OffsetNum, process.Status, process.MasterInstanceID)
-	db, err := tx.DB()
-	if err != nil {
+	if err := tx.Omit("CreatedAt", "UpdatedAt").Create(process).Error; err != nil {
 		return 0, err
 	}
-	result, err := db.Exec(recordSql)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
+	return process.ID, nil
 }
 
 func (d *ModelFileProcessDao) BatchSave(processes []model.ModelFileProcess) error {
@@ -189,4 +183,21 @@ func (d *ModelFileProcessDao) DeleteByRecordIDAndInstanceID(recordID []int64, in
 	}
 
 	return result.RowsAffected, nil
+}
+
+// A queued report carrying a process ID must still refer to that exact
+// namespace/repository/file and node; stale IDs cannot update another tenant.
+func (d *ModelFileProcessDao) ValidateProcessIdentity(entry *pb.FileProcessEntry) error {
+	var count int64
+	err := d.baseData.BizDB.Table("model_file_process p").
+		Joins("JOIN model_file_record r ON r.id = p.record_id").
+		Where("p.id = ? AND p.instance_id = ? AND r.datatype = ? AND r.org = ? AND r.repo = ? AND r.name = ? AND r.etag = ?",
+			entry.ProcessId, entry.InstanceId, entry.DataType, entry.Org, entry.Repo, entry.Name, entry.Etag).Count(&count).Error
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return fmt.Errorf("process does not match repository identity")
+	}
+	return nil
 }

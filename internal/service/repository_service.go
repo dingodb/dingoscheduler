@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 
 	"dingoscheduler/internal/dao"
@@ -30,6 +31,7 @@ import (
 	"dingoscheduler/pkg/config"
 	"dingoscheduler/pkg/consts"
 	myerr "dingoscheduler/pkg/error"
+	repokey "dingoscheduler/pkg/repository"
 	"dingoscheduler/pkg/util"
 
 	"github.com/bytedance/sonic"
@@ -59,7 +61,7 @@ func NewRepositoryService(dingospeedDao *dao.DingospeedDao,
 		organizationDao: organizationDao,
 		tagDao:          tagDao,
 		hfTokenDao:      hfTokenDao,
-		client:          &http.Client{},
+		client:          &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 }
 
@@ -76,13 +78,14 @@ func (s *RepositoryService) RepositoryList(query *query.ModelQuery) ([]*dto.Repo
 	for _, item := range repositories {
 		var repo dto.Repository
 		gocopy.Copy(&repo, &item)
-		if icon, err := s.organizationDao.GetOrganization(repo.Org); err != nil {
+		if icon, err := s.organizationDao.GetOrganization(upstreamLogoOrg(repo.Org, repo.Repo)); err != nil {
 			return nil, 0, err
 		} else {
 			if icon != "" {
 				repo.Icon = fmt.Sprintf("%s%s", config.SysConfig.Oss.Path, icon)
 			}
 		}
+		setRepositoryIdentity(&repo)
 		repos = append(repos, &repo)
 	}
 	return repos, size, nil
@@ -102,53 +105,41 @@ func (s *RepositoryService) GetRepositoryById(id int64) (*dto.Repository, error)
 	for _, tag := range tags {
 		repo.Tags = append(repo.Tags, tag.Label)
 	}
-	if icon, err := s.organizationDao.GetOrganization(repository.Org); err != nil {
+	if icon, err := s.organizationDao.GetOrganization(upstreamLogoOrg(repository.Org, repository.Repo)); err != nil {
 		return nil, err
 	} else {
 		if icon != "" {
 			repo.Icon = fmt.Sprintf("%s%s", config.SysConfig.Oss.Path, icon)
 		}
 	}
+	setRepositoryIdentity(&repo)
 	return &repo, nil
 }
 
 func (s *RepositoryService) RepositoryCardById(c echo.Context, instanceId string, id int64) (*common.Response, error) {
-	cardKey := util.GetCardKey(instanceId, id)
-	var commResp *common.Response
-	if v, ok := s.baseData.Cache.Get(cardKey); ok {
-		commResp = v.(*common.Response)
-		s.baseData.Cache.Set(cardKey, commResp, config.SysConfig.GetCacheExpiration())
-	} else {
-		targetURL, repository, err := s.getRepository(instanceId, id)
-		if err != nil {
-			return nil, err
-		}
-		prefix := string(consts.RepoTypeModel)
-		if repository.Datatype == string(consts.RepoTypeDataset) {
-			prefix = string(consts.RepoTypeDataset)
-		}
-		forwardURL := fmt.Sprintf("%s/%s/%s/resolve/%s/README.md", targetURL.String(), prefix, repository.OrgRepo, repository.Sha)
-		resp, err := s.requestForward(c, targetURL, forwardURL)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("读取响应体失败: %v", err)
-		}
-		headers := make(map[string]interface{}, 0)
-		for key, values := range resp.Header {
-			headers[key] = values
-		}
-		commResp = &common.Response{
-			StatusCode: resp.StatusCode,
-			Headers:    headers,
-			Body:       body,
-		}
-		s.baseData.Cache.Set(cardKey, commResp, config.SysConfig.GetCacheExpiration())
+	targetURL, repository, err := s.getRepository(instanceId, id)
+	if err != nil {
+		return nil, err
 	}
-	return commResp, nil
+	uri, err := storageAPIKey(repository.Datatype, repository.Org, repository.Repo).OperationURI("file", repository.Sha, "README.md")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.requestForward(c, targetURL, targetURL.String()+uri)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	headers := make(map[string]interface{})
+	for key, values := range resp.Header {
+		headers[key] = values
+	}
+	// Always pass through DingoSpeed authorization, even for a cached README.
+	return &common.Response{StatusCode: resp.StatusCode, Headers: headers, Body: body}, nil
 }
 
 func (s *RepositoryService) RepositoryFilesById(c echo.Context, instanceId string, id int64, filePath string) error {
@@ -156,14 +147,11 @@ func (s *RepositoryService) RepositoryFilesById(c echo.Context, instanceId strin
 	if err != nil {
 		return err
 	}
-	prefix := string(consts.RepoTypeModel)
-	if repository.Datatype == string(consts.RepoTypeDataset) {
-		prefix = string(consts.RepoTypeDataset)
+	uri, err := storageAPIKey(repository.Datatype, repository.Org, repository.Repo).OperationURI("files", repository.Sha, filePath)
+	if err != nil {
+		return err
 	}
-	forwardURL := fmt.Sprintf("%s/api/%s/%s/files/%s/", targetURL.String(), prefix, repository.OrgRepo, repository.Sha)
-	if filePath != "" {
-		forwardURL += filePath
-	}
+	forwardURL := targetURL.String() + uri
 	resp, err := s.requestForward(c, targetURL, forwardURL)
 	if err != nil {
 		return err
@@ -269,4 +257,28 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 		return myerr.New("更新状态错误。")
 	}
 	return nil
+}
+
+func upstreamLogoOrg(org, repo string) string {
+	if strings.Contains(org, "/") {
+		return ""
+	}
+	return org
+}
+func storageAPIKey(repoType, org, repo string) repokey.Key {
+	k, _ := repokey.FromWire(repoType, org, repo)
+	return k
+}
+
+func setRepositoryIdentity(r *dto.Repository) {
+	k, e := repokey.FromWire(r.Datatype, r.Org, r.Repo)
+	if e != nil {
+		return
+	}
+	r.Namespace = k.Namespace
+	if strings.HasPrefix(r.Org, "dingo-local/") {
+		r.Org = k.Namespace
+		r.Repo = k.Repo
+		r.OrgRepo = k.ID()
+	}
 }

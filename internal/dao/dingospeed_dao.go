@@ -16,18 +16,23 @@ package dao
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 
 	"dingoscheduler/internal/data"
 	"dingoscheduler/internal/model"
 	"dingoscheduler/pkg/common"
 	"dingoscheduler/pkg/config"
+	"dingoscheduler/pkg/repository"
 	"dingoscheduler/pkg/util"
 )
 
 type DingospeedDao struct {
 	baseData *data.BaseData
 	mu       sync.Mutex
+	healthMu sync.Mutex
+	health   map[int32]*string
 }
 
 func NewDingospeedDao(data *data.BaseData) *DingospeedDao {
@@ -37,12 +42,12 @@ func NewDingospeedDao(data *data.BaseData) *DingospeedDao {
 }
 
 func (d *DingospeedDao) Save(speed *model.Dingospeed) (int64, error) {
-	insertSql := fmt.Sprintf("INSERT INTO dingospeed(instance_id, host, port, online) VALUES('%s','%s',%d,%v)", speed.InstanceID, speed.Host, speed.Port, speed.Online)
+	insertSql := "INSERT INTO dingospeed(instance_id, host, port, online) VALUES(?,?,?,?)"
 	db, err := d.baseData.BizDB.DB()
 	if err != nil {
 		return 0, err
 	}
-	result, err := db.Exec(insertSql)
+	result, err := db.Exec(insertSql, speed.InstanceID, speed.Host, speed.Port, speed.Online)
 	if err != nil {
 		return 0, err
 	}
@@ -50,10 +55,12 @@ func (d *DingospeedDao) Save(speed *model.Dingospeed) (int64, error) {
 }
 
 func (d *DingospeedDao) RegisterUpdate(speed *model.Dingospeed) error {
-	sql := fmt.Sprintf("UPDATE dingospeed SET host='%s', port=%d, updated_at = '%s' WHERE id = %d", speed.Host, speed.Port, util.GetCurrentTimeStr(), speed.ID)
-	if err := d.baseData.BizDB.Exec(sql).Error; err != nil {
+	d.healthMu.Lock()
+	defer d.healthMu.Unlock()
+	if err := d.baseData.BizDB.Exec("UPDATE dingospeed SET host = ?, port = ?, updated_at = ? WHERE id = ?", speed.Host, speed.Port, util.GetCurrentTimeStr(), speed.ID).Error; err != nil {
 		return err
 	}
+	delete(d.health, speed.ID)
 	return nil
 }
 
@@ -97,12 +104,20 @@ func (d *DingospeedDao) GetEntity(instanceId string, online bool) (*model.Dingos
 	return nil, nil
 }
 
-func (d *DingospeedDao) RemoteRequestMeta(domain, repoType, orgRepo, commit string, headers map[string]string) (*common.Response, error) {
-	var reqUri string
-	if commit == "" {
-		reqUri = fmt.Sprintf("/api/%s/%s", repoType, orgRepo)
-	} else {
-		reqUri = fmt.Sprintf("/api/%s/%s/revision/%s", repoType, orgRepo, commit)
+func (d *DingospeedDao) RemoteRequestMeta(domain string, key repository.Key, commit string, headers map[string]string) (*common.Response, error) {
+	reqUri, err := key.OperationURI("metadata", commit, "")
+	if key.Namespace == "huggingface" {
+		if commit == "" {
+			commit = "main"
+		}
+		parts := strings.Split(key.Repo, "/")
+		for i := range parts {
+			parts[i] = url.PathEscape(parts[i])
+		}
+		reqUri = "/api/" + key.RepoType + "/" + strings.Join(parts, "/") + "/revision/" + url.PathEscape(commit)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return util.RetryRequest(func() (*common.Response, error) {
 		return util.GetForDomain(domain, reqUri, headers)

@@ -51,22 +51,22 @@ func (c *CacheJobDao) GetCacheJob(condition *query.CacheJobQuery) (*model.CacheJ
 	var preheatJobs []*model.CacheJob
 	db := c.baseData.BizDB.Model(&model.CacheJob{})
 	if condition.Id != 0 {
-		db.Where("id = ?", condition.Id)
+		db = db.Where("id = ?", condition.Id)
 	}
 	if condition.Type != 0 {
-		db.Where("type = ?", condition.Type)
+		db = db.Where("type = ?", condition.Type)
 	}
 	if condition.InstanceId != "" {
-		db.Where("instance_id = ?", condition.InstanceId)
+		db = db.Where("instance_id = ?", condition.InstanceId)
 	}
 	if condition.Datatype != "" {
-		db.Where("datatype = ?", condition.Datatype)
+		db = db.Where("datatype = ?", condition.Datatype)
 	}
 	if condition.Org != "" {
-		db.Where("org = ?", condition.Org)
+		db = db.Where("org = ?", condition.Org)
 	}
 	if condition.Repo != "" {
-		db.Where("repo = ?", condition.Repo)
+		db = db.Where("repo = ?", condition.Repo)
 	}
 	if err := db.Find(&preheatJobs).Error; err != nil {
 		return nil, err
@@ -105,12 +105,26 @@ func (c *CacheJobDao) UpdateCacheStatus(statusReq *query.UpdateJobStatusReq) err
 }
 
 func (c *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq) error {
-	err := c.UpdateCacheStatus(jobStatusReq)
+	if jobStatusReq.Id <= 0 {
+		return fmt.Errorf("cache job ID is required")
+	}
+	job, err := c.GetCacheJob(&query.CacheJobQuery{Id: jobStatusReq.Id})
+	if err != nil {
+		return err
+	}
+	if job == nil || jobStatusReq.InstanceId == "" || job.InstanceId != jobStatusReq.InstanceId {
+		return fmt.Errorf("cache job does not match instance")
+	}
+	if (jobStatusReq.Org != "" && jobStatusReq.Org != job.Org) || (jobStatusReq.Repo != "" && jobStatusReq.Repo != job.Repo) {
+		return fmt.Errorf("cache job does not match repository identity")
+	}
+	jobStatusReq.Org, jobStatusReq.Repo = job.Org, job.Repo
+	err = c.UpdateCacheStatus(jobStatusReq)
 	if err != nil {
 		return err
 	}
 	if jobStatusReq.Status == consts.RunningStatusJobComplete {
-		err = c.repositoryDao.PersistRepo(&query.PersistRepoReq{InstanceIds: []string{jobStatusReq.InstanceId},
+		err = c.repositoryDao.PersistRepo(&query.PersistRepoReq{Datatype: job.Datatype, InstanceIds: []string{jobStatusReq.InstanceId},
 			Org: jobStatusReq.Org, Repo: jobStatusReq.Repo, OffVerify: true})
 		if err != nil {
 			return err
@@ -129,22 +143,22 @@ func (c *CacheJobDao) ListCacheJob(condition *query.CacheJobQuery) ([]*model.Cac
 	var cacheJobs []*model.CacheJob
 	db := c.baseData.BizDB.Model(&model.CacheJob{})
 	if condition.Id != 0 {
-		db.Where("id = ?", condition.Id)
+		db = db.Where("id = ?", condition.Id)
 	}
 	if condition.Type != 0 {
-		db.Where("type = ?", condition.Type)
+		db = db.Where("type = ?", condition.Type)
 	}
 	if condition.InstanceId != "" {
-		db.Where("instance_id = ?", condition.InstanceId)
+		db = db.Where("instance_id = ?", condition.InstanceId)
 	}
 	if condition.Datatype != "" {
-		db.Where("datatype = ?", condition.Datatype)
+		db = db.Where("datatype = ?", condition.Datatype)
 	}
 	if condition.Org != "" {
-		db.Where("org = ?", condition.Org)
+		db = db.Where("org = ?", condition.Org)
 	}
 	if condition.Repo != "" {
-		db.Where("repo = ?", condition.Repo)
+		db = db.Where("repo = ?", condition.Repo)
 	}
 	var count int64
 	if err := db.Count(&count).Error; err != nil {
@@ -152,7 +166,7 @@ func (c *CacheJobDao) ListCacheJob(condition *query.CacheJobQuery) ([]*model.Cac
 		return nil, 0, err
 	}
 	offset, pageSize := paginate(condition.Page, condition.PageSize)
-	db.Order(fmt.Sprintf("created_at desc offset %d limit %d", offset, pageSize))
+	db = db.Order(fmt.Sprintf("created_at desc offset %d limit %d", offset, pageSize))
 	if err := db.Find(&cacheJobs).Error; err != nil {
 		return nil, 0, err
 	}
@@ -163,16 +177,16 @@ func (c *CacheJobDao) GetUnCacheJob(instanceId string, ids []int, runningStatus 
 	cacheJobs := make([]*model.CacheJob, 0)
 	db := c.baseData.BizDB.Table("cache_job t1")
 	if instanceId != "" {
-		db.Where("t1.instance_id = ?", instanceId)
+		db = db.Where("t1.instance_id = ?", instanceId)
 	}
 	if len(ids) > 0 {
-		db.Where("t1.id in (?)", ids)
+		db = db.Where("t1.id in (?)", ids)
 	}
 	if len(runningStatus) > 0 {
-		db.Where("t1.status in (?)", runningStatus)
+		db = db.Where("t1.status in (?)", runningStatus)
 	}
 	if limit > 0 {
-		db.Limit(limit)
+		db = db.Limit(limit)
 	}
 	err := db.Find(&cacheJobs).Error // 中断或等待中的
 	return cacheJobs, err

@@ -50,11 +50,19 @@ func (r *HttpRouter) GetHandler() *echo.Echo {
 }
 
 func (r *HttpRouter) initRouter() {
+	r.echo.POST("/internal/v1/official-revisions", r.managerHandler.OfficialRevision)
+	r.echo.GET("/node-health", handler.NodeHealthPage)
+	r.echo.GET("/api/v1/nodes/health", r.managerHandler.NodeHealth)
+	r.echo.GET("/api/v1/nodes/:id/repositories", r.managerHandler.NodeRepositories)
 	// 系统信息
 	r.echo.GET("/info", r.sysHandler.Info)
 	if config.SysConfig.EnableMetric() {
 		r.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
+	r.echo.POST("/api/v1/repositories/ingest", r.managerHandler.IngestRepository)
+	r.echo.GET("/api/v1/upload-inventory/repositories", r.managerHandler.UploadedRepositories)
+	r.echo.GET("/api/v1/upload-inventory/files", r.managerHandler.UploadedHoldings)
+	r.echo.GET("/api/v1/upload-inventory/nodes/:instanceId/files", r.managerHandler.UploadedNodeHoldings)
 	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler)   // 持久化仓库
 	r.echo.GET("/api/refreshToken", r.managerHandler.RefreshToken)         // 刷新默认token
 	r.echo.POST("/api/execWaitTask", r.managerHandler.ExecWaitTaskHandler) // 执行等待中的缓存下载任务和挂载模型任务

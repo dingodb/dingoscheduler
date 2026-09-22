@@ -25,6 +25,7 @@ import (
 	"dingoscheduler/internal/model/dto"
 	"dingoscheduler/internal/model/query"
 	myerr "dingoscheduler/pkg/error"
+	"dingoscheduler/pkg/repository"
 	"dingoscheduler/pkg/util"
 
 	"github.com/bytedance/sonic"
@@ -55,6 +56,20 @@ func NewRepositoryDao(data *data.BaseData, repositoryTagDao *RepositoryTagDao, t
 }
 
 func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error {
+	if persistRepoReq.Datatype == "" {
+		persistRepoReq.Datatype = "models"
+	}
+	if persistRepoReq.Namespace != "" {
+		if persistRepoReq.Org != "" {
+			return fmt.Errorf("org and namespace cannot both be supplied")
+		}
+		org, repo, err := (repository.Key{Namespace: persistRepoReq.Namespace, RepoType: persistRepoReq.Datatype, Repo: persistRepoReq.Repo}).Storage()
+		if err != nil {
+			return err
+		}
+		persistRepoReq.Org, persistRepoReq.Repo = org, repo
+	}
+
 	zap.S().Debugf("PersistRepo start instanceId:%s， org:%s, repo:%s", persistRepoReq.InstanceIds, persistRepoReq.Org, persistRepoReq.Repo)
 	var (
 		pipelineMap map[string]string
@@ -71,7 +86,7 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 			continue
 		}
 		// 存在下载记录和进度，但【模型】在仓库不存在，没有数据集。
-		freeRepositories, err := r.GetFreeRepository(instanceId, persistRepoReq.Org, persistRepoReq.Repo)
+		freeRepositories, err := r.GetFreeRepository(instanceId, persistRepoReq.Datatype, persistRepoReq.Org, persistRepoReq.Repo)
 		if err != nil {
 			return err
 		}
@@ -88,6 +103,9 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 		}
 		speedDomain := fmt.Sprintf("http://%s:%d", speed.Host, speed.Port)
 		for _, repository := range freeRepositories {
+			if repositoryKey(repository).Namespace != "huggingface" && repositoryKey(repository).Namespace != "modelscope" {
+				continue
+			}
 			if err = r.singleRepositoryPersist(repository, instanceId, speedDomain, pipelineMap, persistRepoReq.OffVerify); err != nil {
 				zap.S().Errorf("singleRepositoryPersist err.%v", err)
 				continue
@@ -100,7 +118,7 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 
 func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, instanceId, speedDomain string, pipelineMap map[string]string, offVerify bool) error {
 	orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
-	metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repository.Datatype, orgRepo, "main", r.hfTokenDao.GetHeaders())
+	metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repositoryKey(repository), "main", r.hfTokenDao.GetHeaders())
 	if err != nil {
 		return err
 	}
@@ -124,7 +142,9 @@ func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, in
 		}
 	}
 	// 保存组织图片
-	err = r.organizationDao.PersistOrgLogo(repository.Org)
+	if repositoryKey(repository).Namespace == "huggingface" && repository.Org != "" {
+		err = r.organizationDao.PersistOrgLogo(repository.Org)
+	}
 	if err != nil {
 		zap.S().Errorf("PersistOrgLogo err.org:%s, %v", repository.Org, err)
 	}
@@ -148,7 +168,7 @@ func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, in
 			TagId: tag,
 		})
 	}
-	err = r.RepoAndTagSave(repo, tags)
+	err = saveRemoteRepositoryMetadata(repo, tags, r.RepoAndTagSave)
 	if err != nil {
 		zap.S().Errorf("repository save err.orgRepo:%s,%v", orgRepo, err)
 		return err
@@ -183,18 +203,13 @@ func (r *RepositoryDao) verifyRepoComplete(metaData *dto.CommitHfSha, instanceId
 }
 
 func (r *RepositoryDao) SaveBySql(tx *gorm.DB, repo *model.Repository) (int64, error) {
-	recordSql := fmt.Sprintf("INSERT INTO repository (instance_id, datatype, org, repo, org_repo, like_num, download_num, pipeline_tag_id, pipeline_tag, last_modified, used_storage, sha)"+
-		" VALUES( '%s', '%s', '%s', '%s', '%s', %d, %d, '%s', '%s', '%s', %d, '%s')",
-		repo.InstanceId, repo.Datatype, repo.Org, repo.Repo, repo.OrgRepo, repo.LikeNum, repo.DownloadNum, repo.PipelineTagId, repo.PipelineTag, repo.LastModified, repo.UsedStorage, repo.Sha)
-	db, err := tx.DB()
-	if err != nil {
+	if err := repositoryKey(repo).Validate(); err != nil {
 		return 0, err
 	}
-	result, err := db.Exec(recordSql)
-	if err != nil {
+	if err := tx.Omit("CreatedAt", "UpdatedAt").Create(repo).Error; err != nil {
 		return 0, err
 	}
-	return result.LastInsertId()
+	return repo.ID, nil
 }
 
 func (r *RepositoryDao) Get(id int64) (*model.Repository, error) {
@@ -228,42 +243,48 @@ func (r *RepositoryDao) RepoAndTagSave(repository *model.Repository, tags []*mod
 	return nil
 }
 
-func (r *RepositoryDao) GetFreeRepository(instanceId, org, repo string) ([]*model.Repository, error) {
+func (r *RepositoryDao) GetFreeRepository(instanceId, repoType, org, repo string) ([]*model.Repository, error) {
 	var repositories []*model.Repository
-	tx := r.baseData.BizDB.Table("model_file_record t1").Select("distinct t1.datatype, t1.org, t1.repo ")
-	if org != "" && repo != "" {
-		tx.Where(fmt.Sprintf(" t1.org = '%s' and t1.repo= '%s'", org, repo))
+	tx := r.baseData.BizDB.Table("model_file_record t1").Select("distinct t1.datatype, t1.org, t1.repo")
+	if repoType != "" {
+		tx = tx.Where("t1.datatype = ?", repoType)
 	}
-	err := tx.Where("t1.id in (SELECT x.record_id FROM dingo.model_file_process x where x.instance_id = ?) "+
-		"and t1.repo not in (select repo from repository where instance_id = ?)", instanceId, instanceId).Find(&repositories).Error
+	if org != "" {
+		tx = tx.Where("t1.org = ?", org)
+	}
+	if repo != "" {
+		tx = tx.Where("t1.repo = ?", repo)
+	}
+	err := tx.Where("EXISTS (SELECT 1 FROM model_file_process x WHERE x.record_id = t1.id AND x.instance_id = ?)", instanceId).
+		Where("NOT EXISTS (SELECT 1 FROM repository r WHERE r.instance_id = ? AND r.datatype = t1.datatype AND r.org = t1.org AND r.repo = t1.repo)", instanceId).Find(&repositories).Error
 	return repositories, err
 }
 
 func (r *RepositoryDao) VerifyRepoComplete(instanceId, datatype, org, repo string) (int64, error) {
 	var recordCount int64
-	err := r.baseData.BizDB.Table("model_file_record t1").Select("t1.id").InnerJoins(", model_file_process t2").
+	err := r.baseData.BizDB.Table("model_file_record t1").Select("t1.id").Joins("JOIN model_file_process t2 ON t1.id = t2.record_id").
 		Where("t1.datatype = ? and t1.org=? and t1.repo= ? and t1.id = t2.record_id and t2.instance_id = ? and t1.file_size = t2.offset_num", datatype, org, repo, instanceId).Count(&recordCount).Error
 	return recordCount, err
 }
 
 func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository, int64, error) {
 	repositories := make([]*model.Repository, 0)
-	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.org, t1.org_repo, t1.like_num, t1.download_num, t1.sha, t1.pipeline_tag, t1.last_modified, t1.used_storage, t1.status")
+	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.datatype, t1.org, t1.repo, t1.org_repo, t1.like_num, t1.download_num, t1.sha, t1.pipeline_tag, t1.last_modified, t1.used_storage, t1.status")
 	if query.InstanceId != "" {
-		db.Where("t1.instance_id = ?", query.InstanceId)
+		db = db.Where("t1.instance_id = ?", query.InstanceId)
 	}
 	if query.Name != "" {
-		db.Where(fmt.Sprintf("t1.org_repo like '%s'", "%"+query.Name+"%"))
+		db = db.Where("t1.org_repo LIKE ?", "%"+query.Name+"%")
 	}
 	if query.PipelineTag != "" {
-		db.Where("t1.pipeline_tag_id = ?", query.PipelineTag)
+		db = db.Where("t1.pipeline_tag_id = ?", query.PipelineTag)
 	}
 	if query.Datatype != "" {
-		db.Where("t1.datatype = ?", query.Datatype)
+		db = db.Where("t1.datatype = ?", query.Datatype)
 	}
 
 	if query.Status != "" {
-		db.Where("t1.status = ?", util.Atoi(query.Status))
+		db = db.Where("t1.status = ?", util.Atoi(query.Status))
 	}
 
 	tags := make([]string, 0)
@@ -286,7 +307,7 @@ func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository,
 		tags = append(tags, strings.Split(query.Other, ",")...)
 	}
 	if len(tags) > 0 {
-		db.Where(" t1.id in (select repo_id from repository_tag where tag_id in (?))", tags)
+		db = db.Where(" t1.id in (select repo_id from repository_tag where tag_id in (?))", tags)
 	}
 	var count int64
 	if err := db.Count(&count).Error; err != nil {
@@ -295,11 +316,11 @@ func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository,
 	}
 	offset, pageSize := paginate(query.Page, query.PageSize)
 	if query.Sort != "" && query.Order != "" {
-		db.Order(fmt.Sprintf("%s %s offset %d limit %d", query.Sort, query.Order, offset, pageSize))
+		db = db.Order(fmt.Sprintf("%s %s", query.Sort, query.Order))
 	} else {
-		db.Order(fmt.Sprintf("offset %d limit %d", offset, pageSize))
+		db = db.Order("t1.id ASC")
 	}
-	err := db.Find(&repositories).Error
+	err := db.Offset(offset).Limit(pageSize).Find(&repositories).Error
 	return repositories, count, err
 }
 
@@ -359,17 +380,22 @@ func (r *RepositoryDao) GetUnmountRepository(instanceId string, ids []int, runni
 	repositories := make([]*model.Repository, 0)
 	db := r.baseData.BizDB.Table("repository t1").Select("t1.id, t1.datatype, t1.org, t1.repo, t1.org_repo, t1.status")
 	if instanceId != "" {
-		db.Where("t1.instance_id = ?", instanceId)
+		db = db.Where("t1.instance_id = ?", instanceId)
 	}
 	if len(ids) > 0 {
-		db.Where("t1.id in (?)", ids)
+		db = db.Where("t1.id in (?)", ids)
 	}
 	if len(runningStatus) > 0 {
-		db.Where("t1.status in (?)", runningStatus)
+		db = db.Where("t1.status in (?)", runningStatus)
 	}
 	if limit > 0 {
-		db.Limit(limit)
+		db = db.Limit(limit)
 	}
 	err := db.Find(&repositories).Error // 中断或等待中的
 	return repositories, err
+}
+
+func repositoryKey(repo *model.Repository) repository.Key {
+	k, _ := repository.FromWire(repo.Datatype, repo.Org, repo.Repo)
+	return k
 }

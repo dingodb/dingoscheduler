@@ -405,6 +405,12 @@ func processDirectory(rootPath string) ([]FileInfo, error) {
 		}
 
 		components := strings.Split(relPath, string(filepath.Separator))
+		if len(components) >= 3 && components[2] == "dingo-local" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		// 校验路径结构：必须包含 api/[models|datasets|spaces]/org/repo/paths-info 前缀
 		if len(components) < 5 ||
 			components[0] != "api" ||
