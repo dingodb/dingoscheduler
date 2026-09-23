@@ -50,6 +50,11 @@ func (r *HttpRouter) GetHandler() *echo.Echo {
 }
 
 func (r *HttpRouter) initRouter() {
+	r.echo.POST("/api/v1/upload-inventory/reports", r.managerHandler.UploadReport)
+	r.echo.POST("/api/v1/upload-inventory/nodes/:instanceId/session", r.managerHandler.UploadReportSession)
+	r.echo.POST("/api/v1/upload-inventory/nodes/:instanceId/reconcile", r.managerHandler.UploadReconcile)
+	r.echo.GET("/api/v1/upload-inventory/nodes/:instanceId/reconcile", r.managerHandler.UploadReconcile)
+	r.echo.POST("/api/v1/upload-inventory/nodes/:instanceId/reconcile-progress", r.managerHandler.UploadReconcileProgress)
 	r.echo.POST("/internal/v1/official-revisions", r.managerHandler.OfficialRevision)
 	r.echo.GET("/node-health", handler.NodeHealthPage)
 	r.echo.GET("/api/v1/nodes/health", r.managerHandler.NodeHealth)

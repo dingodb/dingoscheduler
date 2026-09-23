@@ -61,6 +61,7 @@ func (handler *RepositoryHandler) RepositoriesHandler(c echo.Context) error {
 	datatype := c.QueryParam("datatype")
 	status := c.QueryParam("status")
 	models, total, err := handler.repositoryService.RepositoryList(&query.ModelQuery{
+		Namespace:         c.QueryParam("namespace"),
 		InstanceId:        instanceId,
 		Name:              name,
 		Page:              page,

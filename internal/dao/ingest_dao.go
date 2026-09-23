@@ -134,6 +134,15 @@ func uploadIdentity(item *UploadedInventoryItem) string {
 // exactly one node's upload holdings and cannot touch remote-domain tables.
 func (r *RepositoryDao) ApplyUploadedInventory(ctx context.Context, snap *UploadedInventorySnapshot) (accepted bool, count, total int64, err error) {
 	err = r.baseData.BizDB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if tx.Migrator().HasTable(&model.UploadReportNode{}) {
+			node, e := lockReportNode(tx, snap.InstanceID)
+			if e != nil {
+				return e
+			}
+			if node.Epoch != "" {
+				return fmt.Errorf("legacy full-node reports disabled after inventory protocol upgrade")
+			}
+		}
 		var state model.UploadInventoryState
 		findErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("instance_id = ?", snap.InstanceID).Take(&state).Error
 		if findErr != nil && findErr != gorm.ErrRecordNotFound {

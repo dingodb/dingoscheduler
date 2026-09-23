@@ -86,7 +86,7 @@ func (handler *CacheJobHandler) ListCacheJobHandler(c echo.Context) error {
 		return util.ErrorRequestParamCN(c)
 	}
 	datatype := c.QueryParam("datatype")
-	cacheJobResps, total, err := handler.cacheJobService.ListCacheJob(instanceId, datatype, page, pageSize)
+	cacheJobResps, total, err := handler.cacheJobService.ListCacheJob(instanceId, datatype, page, pageSize, c.QueryParam("namespace"))
 	if err != nil {
 		return util.ResponseError(c, err)
 	}

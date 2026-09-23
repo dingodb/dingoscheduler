@@ -32,3 +32,15 @@ CREATE TABLE IF NOT EXISTS upload_inventory_holding (
   UNIQUE KEY uk_upload_holding(file_id, instance_id),
   INDEX idx_upload_holding_instance(instance_id), INDEX idx_upload_holding_file(file_id)
 );
+
+-- v2 fencing and repository watermarks; independent from holdings lifetime.
+CREATE TABLE IF NOT EXISTS upload_report_nodes (
+  instance_id VARCHAR(191) PRIMARY KEY,
+  epoch VARCHAR(64), pending_epoch VARCHAR(64), baseline_digest VARCHAR(64),
+  status VARCHAR(32), error TEXT, updated_at DATETIME(3)
+);
+CREATE TABLE IF NOT EXISTS upload_report_repos (
+  repo_hash VARCHAR(64) PRIMARY KEY,
+  instance_id VARCHAR(191), epoch VARCHAR(64), sequence BIGINT UNSIGNED,
+  digest VARCHAR(64), INDEX idx_upload_report_node(instance_id)
+);

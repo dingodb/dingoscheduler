@@ -1,6 +1,8 @@
 package dto
 
 type Repository struct {
+	FullRepo     string   `json:"fullRepo"`
+	RepositoryID string   `json:"repositoryId"`
 	Namespace    string   `json:"namespace,omitempty"`
 	Repo         string   `json:"repo,omitempty"`
 	Datatype     string   `json:"repoType,omitempty"`
@@ -19,6 +21,9 @@ type Repository struct {
 }
 
 type CacheJobResp struct {
+	Namespace    string  `json:"namespace"`
+	FullRepo     string  `json:"fullRepo"`
+	RepositoryID string  `json:"repositoryId"`
 	ID           int64   `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	Type         int32   `gorm:"column:type;not null" json:"type"`
 	InstanceId   string  `gorm:"column:instance_id;not null" json:"instanceId"`

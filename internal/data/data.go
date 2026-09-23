@@ -66,7 +66,7 @@ func NewBaseData(conf *config.Config) (*BaseData, func(), error) {
 	// First-phase uploaded inventory is an additive schema. AutoMigrate only
 	// creates/extends these dedicated tables and never migrates legacy remote
 	// repository or download records.
-	if err = bizClient.AutoMigrate(&model.NodeEndpoint{}, &model.UploadInventoryState{}, &model.UploadInventoryFile{}, &model.UploadInventoryHolding{}, &authority.Definition{}, &authority.Receipt{}); err != nil {
+	if err = bizClient.AutoMigrate(&model.NodeEndpoint{}, &model.UploadInventoryState{}, &model.UploadInventoryFile{}, &model.UploadInventoryHolding{}, &model.UploadReportNode{}, &model.UploadReportRepo{}, &authority.Definition{}, &authority.Receipt{}); err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("migrate uploaded inventory schema: %w", err)
 	}

@@ -15,6 +15,7 @@
 package dao
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"dingoscheduler/internal/model"
 	"dingoscheduler/internal/model/dto"
 	"dingoscheduler/internal/model/query"
+	"dingoscheduler/pkg/consts"
 	myerr "dingoscheduler/pkg/error"
 	"dingoscheduler/pkg/repository"
 	"dingoscheduler/pkg/util"
@@ -69,6 +71,21 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 		}
 		persistRepoReq.Org, persistRepoReq.Repo = org, repo
 	}
+	if persistRepoReq.Commit != "" {
+		if persistRepoReq.Repo == "" {
+			return fmt.Errorf("commit requires an explicit repository")
+		}
+		if err := repository.ValidatePath(persistRepoReq.Commit, false); err != nil {
+			return err
+		}
+		key, err := repository.FromWire(persistRepoReq.Datatype, persistRepoReq.Org, persistRepoReq.Repo)
+		if err != nil {
+			return err
+		}
+		if key.Namespace != "huggingface" && key.Namespace != "modelscope" {
+			return fmt.Errorf("remote persistence requires a remote repository")
+		}
+	}
 
 	zap.S().Debugf("PersistRepo start instanceId:%s， org:%s, repo:%s", persistRepoReq.InstanceIds, persistRepoReq.Org, persistRepoReq.Repo)
 	var (
@@ -77,6 +94,7 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 	)
 	r.persistSync.Lock()
 	defer r.persistSync.Unlock()
+	var failures []error
 	pipelineMap, err = r.cachePipelineTags()
 	if err != nil {
 		return err
@@ -89,6 +107,10 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 		freeRepositories, err := r.GetFreeRepository(instanceId, persistRepoReq.Datatype, persistRepoReq.Org, persistRepoReq.Repo)
 		if err != nil {
 			return err
+		}
+		if persistRepoReq.Commit != "" {
+			// A completed newer snapshot updates the existing projection in place.
+			freeRepositories = []*model.Repository{{Datatype: persistRepoReq.Datatype, Org: persistRepoReq.Org, Repo: persistRepoReq.Repo}}
 		}
 		if len(freeRepositories) == 0 {
 			zap.S().Warnf("instanceId:%s 没有要持久化的仓库。", instanceId)
@@ -106,19 +128,35 @@ func (r *RepositoryDao) PersistRepo(persistRepoReq *query.PersistRepoReq) error 
 			if repositoryKey(repository).Namespace != "huggingface" && repositoryKey(repository).Namespace != "modelscope" {
 				continue
 			}
-			if err = r.singleRepositoryPersist(repository, instanceId, speedDomain, pipelineMap, persistRepoReq.OffVerify); err != nil {
+			commit := persistRepoReq.Commit
+			var jobs []model.CacheJob
+			if err = r.baseData.BizDB.Where("instance_id = ? AND datatype = ? AND org = ? AND repo = ? AND status = ?", instanceId, repository.Datatype, repository.Org, repository.Repo, consts.RunningStatusJobComplete).Order("id DESC").Limit(1).Find(&jobs).Error; err != nil {
+				return err
+			}
+			if len(jobs) > 0 {
+				if persistRepoReq.CompletedJobID > 0 && jobs[0].ID > persistRepoReq.CompletedJobID {
+					continue
+				}
+				if commit == "" {
+					commit = jobs[0].Commit
+				}
+			}
+			if err = r.singleRepositoryPersist(repository, instanceId, speedDomain, pipelineMap, persistRepoReq.OffVerify, commit); err != nil {
 				zap.S().Errorf("singleRepositoryPersist err.%v", err)
+				failures = append(failures, fmt.Errorf("%s %s: %w", instanceId, repositoryKey(repository).ID(), err))
 				continue
 			}
 		}
 	}
 	zap.S().Debugf("PersistRepo end instanceId:%s， org:%s, repo:%s", persistRepoReq.InstanceIds, persistRepoReq.Org, persistRepoReq.Repo)
-	return nil
+	return errors.Join(failures...)
 }
 
-func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, instanceId, speedDomain string, pipelineMap map[string]string, offVerify bool) error {
+func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, instanceId, speedDomain string, pipelineMap map[string]string, offVerify bool, commit string) error {
 	orgRepo := util.GetOrgRepo(repository.Org, repository.Repo)
-	metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, repositoryKey(repository), "main", r.hfTokenDao.GetHeaders())
+	key := repositoryKey(repository)
+	headers := r.hfTokenDao.ProviderHeaders(key)
+	metaResp, err := r.dingospeedDao.RemoteRequestMeta(speedDomain, key, commit, headers)
 	if err != nil {
 		return err
 	}
@@ -130,15 +168,23 @@ func (r *RepositoryDao) singleRepositoryPersist(repository *model.Repository, in
 		zap.S().Errorf("unmarshal error.orgRepo:%s, %v", orgRepo, err)
 		return err
 	}
+	if metaData.Sha == "" || metaData.Siblings == nil {
+		return fmt.Errorf("incomplete repository metadata")
+	}
+	if commit != "" && metaData.Sha != commit {
+		return fmt.Errorf("metadata does not match pinned commit %s", commit)
+	}
 	if !offVerify {
+		if err := r.resolveFileIdentities(&metaData, speedDomain, key, headers); err != nil {
+			return err
+		}
 		// 根据当前版本的元数据与下载进度、进度比较，只将完整的模型做保存。
 		isComplete, err := r.verifyRepoComplete(&metaData, instanceId, repository.Datatype, repository.Org, repository.Repo)
 		if err != nil {
 			return err
 		}
 		if !isComplete {
-			zap.S().Infof("repo file unComplete.%s", orgRepo)
-			return nil
+			return fmt.Errorf("repository snapshot is not fully cached: %s", orgRepo)
 		}
 	}
 	// 保存组织图片
@@ -191,15 +237,21 @@ func (r *RepositoryDao) cachePipelineTags() (map[string]string, error) {
 }
 
 func (r *RepositoryDao) verifyRepoComplete(metaData *dto.CommitHfSha, instanceId, datatype, org, repo string) (bool, error) {
-	size, err := r.VerifyRepoComplete(instanceId, datatype, org, repo)
-	if err != nil {
-		return false, err
+	for _, file := range metaData.Siblings {
+		if file.BlobID == "" || file.Size == nil {
+			return false, fmt.Errorf("missing file identity")
+		}
+		var count int64
+		err := r.baseData.BizDB.Table("model_file_record r").Joins("JOIN model_file_process p ON p.record_id = r.id").
+			Where("r.datatype = ? AND r.org = ? AND r.repo = ? AND r.name = ? AND r.etag = ? AND r.file_size = ? AND p.instance_id = ? AND p.offset_num = r.file_size", datatype, org, repo, file.Rfilename, file.BlobID, *file.Size, instanceId).Count(&count).Error
+		if err != nil {
+			return false, err
+		}
+		if count == 0 {
+			return false, nil
+		}
 	}
-	fileCount := len(metaData.Siblings)
-	if size >= int64(fileCount) {
-		return true, nil
-	}
-	return false, nil
+	return true, nil
 }
 
 func (r *RepositoryDao) SaveBySql(tx *gorm.DB, repo *model.Repository) (int64, error) {
@@ -225,7 +277,18 @@ func (r *RepositoryDao) Get(id int64) (*model.Repository, error) {
 
 func (r *RepositoryDao) RepoAndTagSave(repository *model.Repository, tags []*model.RepositoryTag) error {
 	if err := r.baseData.BizDB.Transaction(func(tx *gorm.DB) error {
-		lastId, err := r.SaveBySql(tx, repository)
+		var existing model.Repository
+		err := tx.Where("instance_id = ? AND datatype = ? AND org = ? AND repo = ?", repository.InstanceId, repository.Datatype, repository.Org, repository.Repo).Take(&existing).Error
+		var lastId int64
+		if err == gorm.ErrRecordNotFound {
+			lastId, err = r.SaveBySql(tx, repository)
+		} else if err == nil {
+			lastId = existing.ID
+			err = tx.Model(&existing).Select("like_num", "download_num", "pipeline_tag_id", "pipeline_tag", "last_modified", "used_storage", "sha").Updates(repository).Error
+			if err == nil {
+				err = tx.Where("repo_id = ?", lastId).Delete(&model.RepositoryTag{}).Error
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -308,6 +371,11 @@ func (r *RepositoryDao) ModelList(query *query.ModelQuery) ([]*model.Repository,
 	}
 	if len(tags) > 0 {
 		db = db.Where(" t1.id in (select repo_id from repository_tag where tag_id in (?))", tags)
+	}
+	var filterErr error
+	db, filterErr = filterNamespace(db, "t1.org", query.Namespace)
+	if filterErr != nil {
+		return nil, 0, filterErr
 	}
 	var count int64
 	if err := db.Count(&count).Error; err != nil {

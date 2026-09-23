@@ -242,7 +242,7 @@ func (s *RepositoryService) MountRepository(repoReq *query.RepositoryReq) error 
 	if repoReq.Token != "" {
 		authHeaders["Authorization"] = fmt.Sprintf("Bearer %s", repoReq.Token)
 	} else {
-		authHeaders = s.hfTokenDao.GetHeaders()
+		authHeaders = s.hfTokenDao.ProviderHeaders(storageAPIKey(repository.Datatype, repository.Org, repository.Repo))
 	}
 	var status int32 = consts.RunningStatusJobIng
 	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, authHeaders)
@@ -276,6 +276,7 @@ func setRepositoryIdentity(r *dto.Repository) {
 		return
 	}
 	r.Namespace = k.Namespace
+	r.FullRepo, r.RepositoryID = k.Repo, k.ID()
 	if strings.HasPrefix(r.Org, "dingo-local/") {
 		r.Org = k.Namespace
 		r.Repo = k.Repo

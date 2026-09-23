@@ -9,6 +9,12 @@ type CommitHfSha struct {
 	LastModified string   `json:"lastModified"`
 	Siblings     []struct {
 		Rfilename string `json:"rfilename"`
+		BlobID    string `json:"blobId"`
+		Size      *int64 `json:"size"`
+		LFS       *struct {
+			OID  string `json:"oid"`
+			Size int64  `json:"size"`
+		} `json:"lfs"`
 	} `json:"siblings"`
 	UsedStorage int64 `json:"usedStorage"`
 }

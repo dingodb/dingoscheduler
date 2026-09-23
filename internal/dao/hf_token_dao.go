@@ -6,6 +6,8 @@ import (
 
 	"dingoscheduler/internal/data"
 	"dingoscheduler/internal/model"
+	"dingoscheduler/pkg/config"
+	"dingoscheduler/pkg/repository"
 
 	"go.uber.org/zap"
 )
@@ -50,4 +52,16 @@ func (d *HfTokenDao) GetHeaders() map[string]string {
 		m["Authorization"] = fmt.Sprintf("Bearer %s", token)
 	}
 	return m
+}
+
+// ProviderHeaders never sends a credential belonging to another upstream.
+func (d *HfTokenDao) ProviderHeaders(key repository.Key) map[string]string {
+	if key.Namespace == "huggingface" {
+		return d.GetHeaders()
+	}
+	headers := make(map[string]string)
+	if key.Namespace == "modelscope" && config.SysConfig != nil && config.SysConfig.Scheduler.ModelScopeToken != "" {
+		headers["Authorization"] = "Bearer " + config.SysConfig.Scheduler.ModelScopeToken
+	}
+	return headers
 }
