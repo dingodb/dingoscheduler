@@ -1,33 +1,54 @@
-# 上传库存（第一阶段）
+# 上传库存：持久队列主动推送（协议 v2）
 
-本功能只记录各 DingoSpeed 节点已经生效且可读取的本地上传文件，不参与远端仓库下载，也不提供权威 revision、集群发布事务或自动同步。
+只记录 Speed 已生效、可提供的上传文件。远端下载进度、清理上报、仓库范本与节点间同步保持独立。
 
-## 持久化边界
+## 正常运行
 
-Scheduler 使用三个独立表：
+Speed 在 `<repos>/.upload-inventory/outbox.json` 保存变化序号、按 namespace/repoType/完整仓库名合并的待处理记录、操作恢复日志及固定待确认报告。该目录不在任何仓库目录内，整仓删除不会删除待报告墓碑。
 
-- `upload_inventory_file`：由 `namespace + repo_type + repo + path + sha256` 唯一确定的文件；`size` 用于描述和一致性校验。
-- `upload_inventory_holding`：文件与 Speed `instance_id` 的多对多持有关系。
-- `upload_inventory_state`：每个节点最后接收的 epoch、单调序号、完整性、确认时间和错误信息。
+本地有效元数据变更前先落盘操作意图，操作完成后清除意图；未完成意图可按确定目标重放。发布、删除和恢复经过同一套记录机制。暂存上传不触发有效库存变更。网络不参与本地提交，日志收尾失败也不会将已生效操作改判为网络失败。
 
-表结构见 `upload-inventory-schema.sql`。Scheduler 启动时也会以 GORM `AutoMigrate` 创建这些新增表。原有 `repository`、`model_file_record`、`model_file_process` 等远端业务表不会被上传库存的写入、删除、恢复或对账修改。
+工作线程汇总变化仓库所有有效本地 revision 的文件并主动 POST；同路径不同 SHA256 保留，同内容不同路径保留，多个 revision 的相同引用只计一次。扫描绕过下载服务的元数据缓存，读取不完整或内容不可提供时报错，保留队列与最后确认库存。
 
-## 收敛机制
+报告生成后序号、文件列表、删除标记固定并持久化。请求失败、超时或响应丢失重发同一报告；收到匹配 epoch/sequence/digest 的确认后，仅清除该报告覆盖的记录。发送期间的更新继续保留。
 
-DingoSpeed 每 30 秒以及本地上传、发布、删除、回收或恢复发生变化后扫描一次有效本地 revision，并将完整快照原子写入 `<repos>/.upload-inventory/snapshot.json`。快照 epoch 和 sequence 持久化，因此服务重启后仍能继续单调报告；本地操作已经成功但进程在通知前退出时，下一次启动扫描也会补报。
+连续变化首次延迟 300ms 合并，后续变化不推迟首个截止时间。失败采用有随机抖动的指数退避，最大约 257 秒。注册/重连唤醒待处理队列；空队列不枚举仓库、不发送库存。没有 30 秒周期盘点，心跳不触发盘点。
 
-Speed 向 Scheduler 的 `IngestRepository` RPC 只发送一次性读取令牌。Scheduler 从已注册节点的内部 HTTP 端点读取对应完整快照。读取或校验失败不会改变现有持有关系；扫描不完整时只记录失败状态，也不会把未出现的文件解释为删除。只有更新的完整快照才能替换该节点的持有集合。重复、旧序号或旧 epoch 快照会被忽略。
+## 事务与序号
 
-节点失去心跳只影响查询结果中的 `nodeAvailable`，不会删除最后确认的持有关系。只有完整快照确认缺失，或本地明确操作后产生的完整快照，才移除该节点持有关系；某文件不再有任何节点持有后才删除全局文件记录。
+Scheduler 复用 `upload_inventory_file`、`upload_inventory_holding` 和节点查询状态表，新增：
 
-## 查询接口
+- `upload_report_nodes`：每节点当前代次、待对账代次、基线摘要、任务状态。
+- `upload_report_repos`：每节点每仓库接收水位及固定报告摘要。删除持有关系后保留该水位。
 
-- `GET /api/v1/upload-inventory/repositories`
-- `GET /api/v1/upload-inventory/files`，可选 `namespace`、`repoType`、`repo`、`instanceId`
-- `GET /api/v1/upload-inventory/nodes/:instanceId/files`（响应的 `state` 即使文件列表为空也会给出节点最后库存确认状态）
+一次事务中锁定对应节点状态、比较代次和仓库序号、替换对应节点与仓库的持有关系并保存水位，提交后才确认。相同序号不同内容拒绝；重复报告确认；旧序号不覆盖新状态；旧代次拒绝。节点间没有共享上报互斥锁。无持有关系的文件身份可以保留，但库存目录查询不会显示它，避免跨节点报告与身份清理产生竞争。
 
-文件结果同时包含仓库身份、相对路径、SHA256、大小、节点、最后确认时间、节点当前可用性，以及该节点最近库存是否完整确认。Speed 的 `/api/upload-inventory` 是 Scheduler 使用的令牌保护内部端点，不是面向用户的查询接口。
+## 初次基线与人为对账
 
-## 配置和启动
+初次接入 v2 时由 Scheduler 分配基线代次。仅初次接入与用户明确对账才全量盘点；普通重启继续持久队列。由 v1 升级到 v2 会建立一次新基线，此后旧全节点回拉报告不再被接受。
 
-沿用现有 Scheduler 数据库配置和 Speed 注册/心跳配置，无需新增配置项。先启动 Scheduler，再按原方式启动 Speed；Scheduler 暂时不可用不影响 Speed 的本地上传、发布、删除、回收或恢复。连接恢复后，周期完整快照会自动对账。
+人为对账：Spinfield 节点配置 → **重新对账上传库存** → Scheduler 持久化任务并通知目标 Speed → Speed 固定完整清单并校验内容 SHA256 → POST → Scheduler 原子替换该节点全量上传持有关系 → Speed 收到确认后归零。
+
+成功时切换新 epoch，清空被基线覆盖的旧队列，序号重置为 0。盘点固定之后发生的新变化保留，并从新代次的 1 开始重新编号；它们已产生时，观察到的序号可以立即大于 0。其他节点的队列、序号和代次不变。重复基线不会擦除其后已应用的仓库更新。
+
+任务失败保持原库存和原代次。已固定报告的发送失败只重发原报告，不重复扫描；本地基线构建最多自动尝试三次，达到上限后持久保存停止状态并上报 `needs_attention` 和错误，不再自动全量扫盘。普通重启、重连、重复投递和新的仓库变更不会重置次数。修复原因后再次显式对账，由 Scheduler 分配新代次重新执行；进行中的非停止任务仍合并重复请求。停止期间普通仓库变化继续持久入队，待完整基线确认后接续，不能用部分基线覆盖库存。任务投递有独立重试；Scheduler 重启恢复未投递任务，Speed 重连也取得待执行任务。页面 GET 和刷新只读取任务状态。
+
+Speed 丢失序号但 Scheduler 已有代次时不会擅自从 1 上报，必须显式对账。队列 JSON 损坏时显式请求会先保存 `.damaged-*` 副本再建立重建状态；权限或其他普通 IO 失败不会被当成可清空的损坏文件。直接改磁盘不产生事件，可由显式对账发现。
+
+## 接口
+
+- `POST /api/v1/upload-inventory/reports`：v2 报告，单请求上限 128 MiB。
+- `POST /api/v1/upload-inventory/nodes/:instanceId/session`：首次基线和重连控制状态，不自行扫描磁盘。
+- `POST /api/v1/upload-inventory/nodes/:instanceId/reconcile`：显式创建/重试投递对账任务。
+- `GET /api/v1/upload-inventory/nodes/:instanceId/reconcile`：只读任务状态。
+- `POST /api/v1/upload-inventory/nodes/:instanceId/reconcile-progress`：扫描/重试/需要处理状态，不修改持有关系。
+- Speed 管理口 `POST /api/upload-inventory/reconcile`：持久化对账请求并唤醒处理。
+- Spinfield `GET/POST /api/v1/node-settings/:nodeId/inventory-reconcile`：经节点管理权限校验后访问 Scheduler。
+
+原上传库存 repositories/files/nodes 文件查询接口保持不变。节点离线仅影响可用性，保留最后持有关系。原远端下载接口不变。
+
+## 配置与限制
+
+Speed 新增 `scheduler.httpUrl`（注册配置为 `httpUrl`），指向 Scheduler HTTP 根地址，不从 gRPC 端口推断。Spinfield 接管注册的节点自动使用全局 Scheduler HTTP 地址；外部管理的节点需在 Speed 配置中提供。先升级 Scheduler，再升级 Speed；失败期间本地操作继续。
+
+此版本使用原子文件状态存储，不引入外部消息系统。仓库快照及基线在本地有效元数据变更屏障内生成，网络发送不持有屏障。大仓库/大基线需要相应内存与扫描时间，超过 128 MiB 请求限制会明确失败并保留待处理状态，尚未实现分块清单传输。部署沿用现有内部管理网络和权限边界。

@@ -23,6 +23,7 @@ type CreateCacheJobReq struct {
 }
 
 type CacheJobQuery struct {
+	Namespace      string `json:"namespace"`
 	Id             int64  `json:"id"`
 	Type           int32  `json:"type"`
 	InstanceId     string `json:"instanceId"`
@@ -90,15 +91,18 @@ type PathInfoQuery struct {
 }
 
 type PersistRepoReq struct {
-	Datatype    string   `json:"datatype"`
-	Namespace   string   `json:"namespace"`
-	InstanceIds []string `json:"instanceIds"`
-	Org         string   `json:"org"`
-	Repo        string   `json:"repo"`
-	OffVerify   bool     `json:"offVerify"`
+	Commit         string   `json:"commit,omitempty"`
+	CompletedJobID int64    `json:"-"`
+	Datatype       string   `json:"datatype"`
+	Namespace      string   `json:"namespace"`
+	InstanceIds    []string `json:"instanceIds"`
+	Org            string   `json:"org"`
+	Repo           string   `json:"repo"`
+	OffVerify      bool     `json:"offVerify"`
 }
 
 type ModelQuery struct {
+	Namespace         string `json:"namespace"`
 	InstanceId        string `json:"instanceId"`
 	Name              string
 	Page              int

@@ -91,9 +91,10 @@ type Proxy struct {
 }
 
 type Scheduler struct {
-	Port          int32       `json:"port" yaml:"port"`
-	PersistRepo   PersistRepo `json:"persistRepo" yaml:"persistRepo"`
-	GlobalHfToken string      `json:"globalHfToken" yaml:"globalHfToken"`
+	Port            int32       `json:"port" yaml:"port"`
+	PersistRepo     PersistRepo `json:"persistRepo" yaml:"persistRepo"`
+	GlobalHfToken   string      `json:"globalHfToken" yaml:"globalHfToken"`
+	ModelScopeToken string      `json:"-" yaml:"modelscopeToken"`
 }
 
 type PersistRepo struct {

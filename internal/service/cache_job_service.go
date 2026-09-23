@@ -50,8 +50,13 @@ func NewCacheJobService(dingospeedDao *dao.DingospeedDao, modelFileProcessDao *d
 	}
 }
 
-func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSize int) ([]*dto.CacheJobResp, int64, error) {
+func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSize int, namespaces ...string) ([]*dto.CacheJobResp, int64, error) {
+	namespace := ""
+	if len(namespaces) > 0 {
+		namespace = namespaces[0]
+	}
 	cacheJobs, size, err := c.cacheJobDao.ListCacheJob(&query.CacheJobQuery{
+		Namespace:  namespace,
 		Type:       consts.CacheTypePreheat,
 		InstanceId: instanceId,
 		Datatype:   datatype,
@@ -75,6 +80,9 @@ func (c *CacheJobService) ListCacheJob(instanceId, datatype string, page, pageSi
 	for _, job := range cacheJobs {
 		cacheJobResp := &dto.CacheJobResp{}
 		gocopy.Copy(cacheJobResp, job)
+		if key, err := repository.FromWire(job.Datatype, job.Org, job.Repo); err == nil {
+			cacheJobResp.Namespace, cacheJobResp.FullRepo, cacheJobResp.RepositoryID = key.Namespace, key.Repo, key.ID()
+		}
 		if status, ok := statusMap[job.ID]; ok {
 			cacheJobResp.StockSpeed = status.StockSpeed
 			cacheJobResp.StockProcess = status.StockProcess
@@ -102,7 +110,7 @@ func (c *CacheJobService) getJobRealtimeStatus(jobIds []int64, instanceId string
 		if err != nil {
 			return nil, err
 		}
-		resp, err := util.PostForDomain(speedDomain, "/api/cacheJob/realtime", "application/json", b, c.hfTokenDao.GetHeaders())
+		resp, err := util.PostForDomain(speedDomain, "/api/cacheJob/realtime", "application/json", b, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -127,14 +135,7 @@ func (c *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJob
 	lock := c.lockDao.GetCacheJobReqLock(key.LockKey("job", createCacheJobReq.InstanceId, fmt.Sprint(createCacheJobReq.Type)))
 	lock.Lock()
 	defer lock.Unlock()
-	cacheJob, err := c.cacheJobDao.GetCacheJob(&query.CacheJobQuery{InstanceId: createCacheJobReq.InstanceId, Type: createCacheJobReq.Type,
-		Org: createCacheJobReq.Org, Repo: createCacheJobReq.Repo, Datatype: createCacheJobReq.Datatype})
-	if err != nil {
-		return nil, err
-	}
-	if cacheJob != nil {
-		return nil, myerr.New("已存在该任务，不能再创建。")
-	}
+	// Speed resolves the current commit and owns durable task reuse/admission.
 	entity, err := c.dingospeedDao.GetEntity(createCacheJobReq.InstanceId, true)
 	if err != nil {
 		return nil, err
@@ -147,7 +148,7 @@ func (c *CacheJobService) CreateCacheJob(createCacheJobReq *query.CreateCacheJob
 	if err != nil {
 		return nil, err
 	}
-	return util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, c.hfTokenDao.GetHeaders())
+	return util.PostForDomain(speedDomain, "/api/cacheJob/create", "application/json", b, c.hfTokenDao.ProviderHeaders(key))
 }
 
 func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
@@ -183,7 +184,7 @@ func (c *CacheJobService) StopCacheJob(jobStatusReq *query.JobStatusReq) error {
 	if err != nil {
 		return err
 	}
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/stop", "application/json", b, c.hfTokenDao.GetHeaders())
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/stop", "application/json", b, nil)
 	if err != nil {
 		err = c.cacheJobDao.UpdateCacheStatus(&query.UpdateJobStatusReq{Id: jobStatusReq.Id, Status: consts.RunningStatusJobStop})
 		if err != nil {
@@ -233,7 +234,7 @@ func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 	if err != nil {
 		return err
 	}
-	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/resume", "application/json", b, c.hfTokenDao.GetHeaders())
+	_, err = util.PostForDomain(speedDomain, "/api/cacheJob/resume", "application/json", b, c.hfTokenDao.ProviderHeaders(storageAPIKey(cacheJob.Datatype, cacheJob.Org, cacheJob.Repo)))
 	if err != nil {
 		return err
 	}

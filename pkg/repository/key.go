@@ -103,6 +103,13 @@ func (k Key) LockKey(operation string, fields ...string) string {
 
 func (k Key) ID() string { return k.Namespace + "/" + k.Repo }
 
+func (k Key) DefaultRevision() string {
+	if k.Namespace == "modelscope" {
+		return "master"
+	}
+	return "main"
+}
+
 // OperationURI addresses DingoSpeed's own API, never the upstream HF protocol.
 func (k Key) OperationURI(operation, revision, path string) (string, error) {
 	if err := k.Validate(); err != nil {
@@ -114,7 +121,7 @@ func (k Key) OperationURI(operation, revision, path string) (string, error) {
 		return "", fmt.Errorf("unsupported repository operation")
 	}
 	if revision == "" {
-		revision = "main"
+		revision = k.DefaultRevision()
 	}
 	if err := ValidatePath(revision, false); err != nil {
 		return "", err

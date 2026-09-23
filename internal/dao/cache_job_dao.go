@@ -124,9 +124,19 @@ func (c *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq
 		return err
 	}
 	if jobStatusReq.Status == consts.RunningStatusJobComplete {
-		err = c.repositoryDao.PersistRepo(&query.PersistRepoReq{Datatype: job.Datatype, InstanceIds: []string{jobStatusReq.InstanceId},
-			Org: jobStatusReq.Org, Repo: jobStatusReq.Repo, OffVerify: true})
+		if job.Commit == "" {
+			err = fmt.Errorf("completed cache job has no pinned commit")
+		} else {
+			err = c.repositoryDao.PersistRepo(&query.PersistRepoReq{Datatype: job.Datatype, InstanceIds: []string{jobStatusReq.InstanceId},
+				Org: jobStatusReq.Org, Repo: jobStatusReq.Repo, Commit: job.Commit, CompletedJobID: job.ID})
+		}
 		if err != nil {
+			// Preserve download completion and expose the pending registration.
+			// Returning the error engages Speed's durable notification retry.
+			msg, _ := sonic.Marshal(map[string]string{"msg": "repository registration pending: " + err.Error()})
+			if saveErr := c.baseData.BizDB.Model(job).Update("error_msg", string(msg)).Error; saveErr != nil {
+				return fmt.Errorf("%v; storing registration error: %w", err, saveErr)
+			}
 			return err
 		}
 	}
@@ -160,13 +170,18 @@ func (c *CacheJobDao) ListCacheJob(condition *query.CacheJobQuery) ([]*model.Cac
 	if condition.Repo != "" {
 		db = db.Where("repo = ?", condition.Repo)
 	}
+	var err error
+	db, err = filterNamespace(db, "org", condition.Namespace)
+	if err != nil {
+		return nil, 0, err
+	}
 	var count int64
 	if err := db.Count(&count).Error; err != nil {
 		zap.S().Error("统计数量失败", err)
 		return nil, 0, err
 	}
 	offset, pageSize := paginate(condition.Page, condition.PageSize)
-	db = db.Order(fmt.Sprintf("created_at desc offset %d limit %d", offset, pageSize))
+	db = db.Order("created_at DESC, id DESC").Offset(offset).Limit(pageSize)
 	if err := db.Find(&cacheJobs).Error; err != nil {
 		return nil, 0, err
 	}

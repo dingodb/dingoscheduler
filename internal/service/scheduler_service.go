@@ -64,7 +64,7 @@ func NewSchedulerService(
 	repositoryDao *dao.RepositoryDao,
 	cacheJobDao *dao.CacheJobDao,
 ) *SchedulerService {
-	return &SchedulerService{
+	s := &SchedulerService{
 		baseData:            baseData,
 		dingospeedDao:       dingospeedDao,
 		modelFileRecordDao:  modelFileRecordDao,
@@ -72,6 +72,8 @@ func NewSchedulerService(
 		repositoryDao:       repositoryDao,
 		cacheJobDao:         cacheJobDao,
 	}
+	go s.resumeInventoryReconciles()
+	return s
 }
 
 func (s *SchedulerService) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
