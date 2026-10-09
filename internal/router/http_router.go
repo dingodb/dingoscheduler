@@ -67,6 +67,7 @@ func (r *HttpRouter) initRouter() {
 	r.echo.POST("/api/v1/repositories/ingest", r.managerHandler.IngestRepository)
 	r.echo.GET("/api/v1/upload-inventory/repositories", r.managerHandler.UploadedRepositories)
 	r.echo.GET("/api/v1/upload-inventory/files", r.managerHandler.UploadedHoldings)
+	r.echo.GET("/api/v1/upload-inventory/sources", r.managerHandler.UploadedSyncSources)
 	r.echo.GET("/api/v1/upload-inventory/nodes/:instanceId/files", r.managerHandler.UploadedNodeHoldings)
 	r.echo.POST("/api/persistRepo", r.managerHandler.PersistRepoHandler)   // 持久化仓库
 	r.echo.GET("/api/refreshToken", r.managerHandler.RefreshToken)         // 刷新默认token
