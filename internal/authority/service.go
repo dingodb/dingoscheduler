@@ -111,6 +111,8 @@ func (s *Service) Do(ctx context.Context, r Request) (any, error) {
 		return map[string]any{"items": rows}, nil
 	case "get":
 		return s.get(ctx, r)
+	case "manifest":
+		return s.manifest(ctx, r)
 	case "nodes":
 		var nodes []model.Dingospeed
 		if err := s.DB.WithContext(ctx).Where("instance_id IN (?)", s.DB.Model(&model.UploadInventoryHolding{}).Select("instance_id").Where("file_id IN (?)", s.DB.Model(&model.UploadInventoryFile{}).Select("id").Where("namespace = ? AND repo_type = ? AND repo = ?", r.Namespace, r.RepoType, r.Repo))).Find(&nodes).Error; err != nil {
@@ -373,6 +375,31 @@ func (s *Service) commit(ctx context.Context, r Request) (any, error) {
 			return prior, nil
 		}
 		return nil, err
+	}
+	return out, nil
+}
+
+// Manifest reads only the authoritative definition, independently of current
+// holdings. Sync previews must not run one inventory query per definition file.
+type Manifest struct {
+	Definition
+	Files []File `json:"files"`
+}
+
+func (s *Service) manifest(ctx context.Context, r Request) (Manifest, error) {
+	out := Manifest{Files: []File{}}
+	err := s.DB.WithContext(ctx).Where("id = ?", hash([]string{hash(r.Key), r.Revision})).Take(&out.Definition).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return out, fail(404, "official revision not found")
+	}
+	if err != nil {
+		return out, err
+	}
+	if err = json.Unmarshal([]byte(out.Manifest), &out.Files); err != nil {
+		return out, err
+	}
+	if out.Files == nil {
+		return out, fail(500, "official manifest is incomplete")
 	}
 	return out, nil
 }
