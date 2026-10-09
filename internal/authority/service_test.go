@@ -27,10 +27,16 @@ func TestAtomicConfirmedDefinitions(t *testing.T) {
 	}
 	key := repository.Key{Namespace: "datacanvas", RepoType: "models", Repo: "demo"}
 	a := File{Path: "folder/a", SHA256: strings.Repeat("a", 64), Size: 1}
-	b := File{Path: "folder/b", SHA256: strings.Repeat("b", 64), Size: 2}
-	snap := Snapshot{Key: key, Revision: "commit", Commit: "commit", Files: []File{a, b}, Complete: true, Verified: true, ContentVerified: true, FileCount: 2}
+	// A large published file needs metadata only; the node exposes no payload endpoint.
+	b := File{Path: "folder/b", SHA256: strings.Repeat("b", 64), Size: 2 << 30}
+	snap := Snapshot{Key: key, Revision: "commit", Commit: "commit", Files: []File{a, b}, Complete: true, FileCount: 2}
 	broken := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("verify") {
+			t.Error("official workflow requested payload verification")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		if broken {
 			w.WriteHeader(503)
 			return
@@ -106,11 +112,9 @@ func TestAtomicConfirmedDefinitions(t *testing.T) {
 		t.Fatal("incomplete accepted")
 	}
 	snap.Complete = true
-	snap.ContentVerified = false
-	if _, err = s.snapshot(ctx, key, "A", "commit"); err == nil {
-		t.Fatal("lightweight completion check accepted as SHA256 verification")
+	if result, err := s.snapshot(ctx, key, "A", "commit"); err != nil || result.Verified || result.ContentVerified {
+		t.Fatalf("published metadata must be accepted without claiming content verification: %+v %v", result, err)
 	}
-	snap.ContentVerified = true
 	snap.FileCount = 3
 	if _, err = s.snapshot(ctx, key, "A", "commit"); err == nil {
 		t.Fatal("truncated accepted")
