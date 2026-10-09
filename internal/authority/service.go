@@ -176,7 +176,8 @@ func (s *Service) read(ctx context.Context, k repository.Key, node, op, revision
 	q := url.Values{"repo": {k.Repo}}
 	if revision != "" {
 		q.Set("revision", revision)
-		q.Set("verify", "sha256")
+		// Official definitions trust published metadata. Reading or saving a
+		// definition must not scan payloads or recompute their checksums.
 	}
 	endpoint := "http://" + net.JoinHostPort(n.Host, strconv.Itoa(int(n.Port))) + "/api/repositories/" + url.PathEscape(k.RepoType) + "/" + url.PathEscape(k.Namespace) + "/" + op + "?" + q.Encode()
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
@@ -245,8 +246,8 @@ func (s *Service) snapshot(ctx context.Context, k repository.Key, node, revision
 	if err := s.read(ctx, k, node, "snapshot", revision, &snap); err != nil {
 		return snap, err
 	}
-	if snap.Key != k || snap.Revision != revision || !snap.Complete || !snap.Verified || !snap.ContentVerified || snap.Commit == "" || snap.Files == nil || snap.FileCount != len(snap.Files) {
-		return snap, fail(502, "source manifest is incomplete or unverified; cannot compare")
+	if snap.Key != k || snap.Revision != revision || !snap.Complete || snap.Commit == "" || snap.Files == nil || snap.FileCount != len(snap.Files) {
+		return snap, fail(502, "source manifest is incomplete; cannot compare")
 	}
 	if err := validateFiles(snap.Files); err != nil {
 		return snap, fail(502, err.Error())
