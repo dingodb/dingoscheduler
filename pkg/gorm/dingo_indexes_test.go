@@ -75,10 +75,10 @@ func (r *dingoIndexRows) Next(dst []driver.Value) error {
 func TestDingoExistingIndexesRemainDiscoverable(t *testing.T) {
 	conn := sql.OpenDB(dingoIndexConnector{})
 	t.Cleanup(func() { _ = conn.Close() })
-	d := mysqlCompatibilityDialector{&mysql.Dialector{Config: &mysql.Config{
+	d := mysqlCompatibilityDialector{Dialector: &mysql.Dialector{Config: &mysql.Config{
 		Conn: conn, ServerVersion: "8.0.41-DingoDB-v3.0.0", SkipInitializeWithVersion: true,
 	}}}
-	db, err := gorm.Open(d, &gorm.Config{DisableAutomaticPing: true})
+	db, err := gorm.Open(&d, &gorm.Config{DisableAutomaticPing: true})
 	if err != nil {
 		t.Fatal(err)
 	}

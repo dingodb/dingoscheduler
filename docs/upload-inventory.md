@@ -57,6 +57,8 @@ Speed 新增 `scheduler.httpUrl`（注册配置为 `httpUrl`），指向 Schedul
 
 Scheduler 启动时仍对上传库存、节点端点及权威版本表执行 `AutoMigrate`。检测到 DingoDB 服务端版本后，适配器将时间列映射为 `timestamp`，通过 `SHOW INDEX` 识别现有索引；DingoDB 返回的小写列名必须与扫描字段匹配，否则已有索引会被误判为缺失，重复创建时报错并阻断启动。
 
+DingoDB v3.0.0 会将带微秒小数的时间参数静默写成 `NULL`。适配器仅对 DingoDB 的 GORM 时间参数截断到毫秒精度，覆盖心跳、库存确认时间及新鲜度查询；普通 MySQL 参数保持不变。验收同时覆盖高精度时钟的心跳写入及可空库存时间字段，避免容器运行但所有节点被判离线。
+
 升级前备份现有表及部署配置。使用同版本 DingoDB 的隔离数据库运行 `TestDatabaseMigrationCompatibility`，覆盖旧表非空数据、新建表及连续重新初始化；不变的表结构不得产生额外 DDL，数据必须保持一致。该测试需设置指向本地 TCP 端口的 `SCHEDULER_MIGRATION_TEST_DSN`，会创建独立测试数据库，不迁移 DSN 指定的业务库。
 
 验收通过后再替换镜像，保留现有表进行启动及受控重启验证。不要通过删除库存或权威版本表绕过迁移错误；DingoDB 不支持的真实列变更仍会明确失败，必须另行规划迁移。
