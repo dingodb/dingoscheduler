@@ -21,7 +21,7 @@ func TestSyncSourcesExactIdentityAndRegisteredReachableEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	for i, name := range []string{"good", "target", "stale", "bad-url", "missing-endpoint", "reregistered"} {
+	for i, name := range []string{"good", "target", "stale", "bad-url", "missing-endpoint"} {
 		node := model.Dingospeed{ID: int32(i + 1), InstanceID: name, Host: "127.0.0.1", Port: 1, UpdatedAt: now, Online: false}
 		if name == "stale" {
 			node.UpdatedAt = now.Add(-10 * time.Minute)
@@ -41,14 +41,6 @@ func TestSyncSourcesExactIdentityAndRegisteredReachableEndpoints(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-	}
-	// The most recent registration wins; a stale new registration must not be
-	// replaced by an old healthy endpoint for the same instance.
-	if err := db.Create(&model.Dingospeed{ID: 99, InstanceID: "reregistered", Host: "127.0.0.1", Port: 1, UpdatedAt: now.Add(-10 * time.Minute)}).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Create(&model.NodeEndpoint{NodeID: 99, ManagementURL: "http://127.0.0.1:19999"}).Error; err != nil {
-		t.Fatal(err)
 	}
 	rows, err := r.UploadedSyncSources(context.Background(), q)
 	if err != nil || len(rows) != 1 || rows[0].InstanceID != "good" {

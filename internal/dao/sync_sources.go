@@ -3,12 +3,15 @@ package dao
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
+	"dingoscheduler/internal/model"
 	"dingoscheduler/pkg/repository"
+	"gorm.io/gorm"
 )
 
 // SyncSourceQuery identifies one uploaded file, never a mutable revision or a
@@ -54,26 +57,77 @@ func (r *RepositoryDao) UploadedSyncSources(ctx context.Context, q SyncSourceQue
 		return nil, err
 	}
 	identity := uploadIdentity(&UploadedInventoryItem{Namespace: q.Namespace, RepoType: q.RepoType, Repo: q.Repo, Path: q.Path, SHA256: q.SHA256})
-	var rows []SyncSource
-	db := r.baseData.BizDB.WithContext(ctx).Table("upload_inventory_file f").
-		Select("h.instance_id, e.management_url").
-		Joins("JOIN upload_inventory_holding h ON h.file_id = f.id").
-		Joins("JOIN dingospeed d ON d.id = (SELECT MAX(d2.id) FROM dingospeed d2 WHERE d2.instance_id = h.instance_id)").
-		Joins("JOIN node_endpoints e ON e.node_id = d.id").
-		Where("f.identity_hash = ? AND f.size = ? AND d.updated_at > ?", identity, q.Size, time.Now().Add(-5*time.Minute))
-	if q.ExcludeInstanceID != "" {
-		db = db.Where("h.instance_id <> ?", q.ExcludeInstanceID)
-	}
-	if err := db.Order("h.instance_id").Scan(&rows).Error; err != nil {
+	result := make([]SyncSource, 0)
+	db := r.baseData.BizDB.WithContext(ctx)
+	var file struct{ ID int64 }
+	if err := db.Model(&model.UploadInventoryFile{}).Select("id").Where("identity_hash = ? AND size = ?", identity, q.Size).Take(&file).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return result, nil
+		}
 		return nil, err
 	}
-	result := make([]SyncSource, 0, len(rows))
-	for _, row := range rows {
+	// Keep file/holding lookups indexed and query only related registrations.
+	// DingoDB v3 cannot reliably plan the equivalent correlated multi-table join.
+	holdingQuery := db.Model(&model.UploadInventoryHolding{}).Where("file_id = ?", file.ID)
+	if q.ExcludeInstanceID != "" {
+		holdingQuery = holdingQuery.Where("instance_id <> ?", q.ExcludeInstanceID)
+	}
+	var instances []string
+	if err := holdingQuery.Order("instance_id").Pluck("instance_id", &instances).Error; err != nil {
+		return nil, err
+	}
+	if len(instances) == 0 {
+		return result, nil
+	}
+	var nodes []struct {
+		ID         int32
+		InstanceID string
+		UpdatedAt  time.Time
+	}
+	if err := db.Model(&model.Dingospeed{}).Select("id, instance_id, updated_at").Where("instance_id IN ?", instances).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	cutoff := time.Now().Add(-5 * time.Minute)
+	nodeIDs := make([]int32, 0, len(nodes))
+	for i := range nodes {
+		if nodes[i].UpdatedAt.After(cutoff) {
+			nodeIDs = append(nodeIDs, nodes[i].ID)
+		}
+	}
+	if len(nodeIDs) == 0 {
+		return result, nil
+	}
+	var endpoints []model.NodeEndpoint
+	if err := db.Where("node_id IN ?", nodeIDs).Find(&endpoints).Error; err != nil {
+		return nil, err
+	}
+	byNode := make(map[int32]string, len(endpoints))
+	for i := range endpoints {
+		row := &endpoints[i]
 		u, err := url.Parse(row.ManagementURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(row.ManagementURL) > 2048 {
 			continue
 		}
-		result = append(result, row)
+		byNode[row.NodeID] = row.ManagementURL
+	}
+	selected := make(map[string]int, len(instances))
+	for i := range nodes {
+		node := &nodes[i]
+		if !node.UpdatedAt.After(cutoff) || byNode[node.ID] == "" {
+			continue
+		}
+		previous, exists := selected[node.InstanceID]
+		if !exists || node.UpdatedAt.After(nodes[previous].UpdatedAt) || (node.UpdatedAt.Equal(nodes[previous].UpdatedAt) && node.ID > nodes[previous].ID) {
+			selected[node.InstanceID] = i
+		}
+	}
+	result = make([]SyncSource, 0, len(selected))
+	// Registration reuses IDs when a node switches running mode; heartbeat
+	// recency, not MAX(id), identifies a current registered endpoint.
+	for _, instance := range instances {
+		if i, exists := selected[instance]; exists {
+			result = append(result, SyncSource{InstanceID: instance, ManagementURL: byNode[nodes[i].ID]})
+		}
 	}
 	return result, nil
 }
