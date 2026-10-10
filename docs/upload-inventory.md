@@ -52,3 +52,11 @@ Speed 丢失序号但 Scheduler 已有代次时不会擅自从 1 上报，必须
 Speed 新增 `scheduler.httpUrl`（注册配置为 `httpUrl`），指向 Scheduler HTTP 根地址，不从 gRPC 端口推断。Spinfield 接管注册的节点自动使用全局 Scheduler HTTP 地址；外部管理的节点需在 Speed 配置中提供。先升级 Scheduler，再升级 Speed；失败期间本地操作继续。
 
 此版本使用原子文件状态存储，不引入外部消息系统。仓库快照及基线在本地有效元数据变更屏障内生成，网络发送不持有屏障。大仓库/大基线需要相应内存与扫描时间，超过 128 MiB 请求限制会明确失败并保留待处理状态，尚未实现分块清单传输。部署沿用现有内部管理网络和权限边界。
+
+## DingoDB 启动迁移
+
+Scheduler 启动时仍对上传库存、节点端点及权威版本表执行 `AutoMigrate`。检测到 DingoDB 服务端版本后，适配器将时间列映射为 `timestamp`，通过 `SHOW INDEX` 识别现有索引；DingoDB 返回的小写列名必须与扫描字段匹配，否则已有索引会被误判为缺失，重复创建时报错并阻断启动。
+
+升级前备份现有表及部署配置。使用同版本 DingoDB 的隔离数据库运行 `TestDatabaseMigrationCompatibility`，覆盖旧表非空数据、新建表及连续重新初始化；不变的表结构不得产生额外 DDL，数据必须保持一致。该测试需设置指向本地 TCP 端口的 `SCHEDULER_MIGRATION_TEST_DSN`，会创建独立测试数据库，不迁移 DSN 指定的业务库。
+
+验收通过后再替换镜像，保留现有表进行启动及受控重启验证。不要通过删除库存或权威版本表绕过迁移错误；DingoDB 不支持的真实列变更仍会明确失败，必须另行规划迁移。
