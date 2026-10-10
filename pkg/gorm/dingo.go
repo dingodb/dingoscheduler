@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -17,17 +18,52 @@ import (
 // DingoDB speaks the MySQL protocol, but its schema representation and DDL
 // differ. Select the adapter from the server version, not the shared "mysql"
 // configuration value. Ordinary MySQL keeps the upstream migrator unchanged.
-type mysqlCompatibilityDialector struct{ *mysql.Dialector }
-
-func mysqlDialector(dsn string) gorm.Dialector {
-	return mysqlCompatibilityDialector{mysql.Open(dsn).(*mysql.Dialector)}
+type mysqlCompatibilityDialector struct {
+	*mysql.Dialector
+	initialized bool
+	dingo       bool
 }
 
-func (d mysqlCompatibilityDialector) isDingo() bool {
+func mysqlDialector(dsn string) gorm.Dialector {
+	return &mysqlCompatibilityDialector{Dialector: mysql.Open(dsn).(*mysql.Dialector)}
+}
+
+func (d *mysqlCompatibilityDialector) Initialize(db *gorm.DB) error {
+	if err := d.Dialector.Initialize(db); err != nil {
+		return err
+	}
+	d.dingo = strings.Contains(strings.ToLower(d.ServerVersion), "dingodb")
+	d.initialized = true
+	return nil
+}
+
+func (d *mysqlCompatibilityDialector) isDingo() bool {
+	if d.initialized {
+		return d.dingo
+	}
 	return strings.Contains(strings.ToLower(d.ServerVersion), "dingodb")
 }
 
-func (d mysqlCompatibilityDialector) DataTypeOf(field *schema.Field) string {
+func (d *mysqlCompatibilityDialector) BindVarTo(writer clause.Writer, stmt *gorm.Statement, v interface{}) {
+	if d.isDingo() && len(stmt.Vars) > 0 {
+		// GORM appends the argument before binding. DingoDB v3 silently stores
+		// microsecond timestamp literals as NULL, including heartbeat writes.
+		last := len(stmt.Vars) - 1
+		switch value := stmt.Vars[last].(type) {
+		case time.Time:
+			if value.Nanosecond()%int(time.Millisecond) != 0 {
+				stmt.Vars[last] = value.Truncate(time.Millisecond)
+			}
+		case *time.Time:
+			if value != nil && value.Nanosecond()%int(time.Millisecond) != 0 {
+				stmt.Vars[last] = value.Truncate(time.Millisecond)
+			}
+		}
+	}
+	d.Dialector.BindVarTo(writer, stmt, v)
+}
+
+func (d *mysqlCompatibilityDialector) DataTypeOf(field *schema.Field) string {
 	typ := d.Dialector.DataTypeOf(field)
 	if !d.isDingo() {
 		return typ
@@ -46,7 +82,7 @@ func (d mysqlCompatibilityDialector) DataTypeOf(field *schema.Field) string {
 	return typ
 }
 
-func (d mysqlCompatibilityDialector) Migrator(db *gorm.DB) gorm.Migrator {
+func (d *mysqlCompatibilityDialector) Migrator(db *gorm.DB) gorm.Migrator {
 	m := d.Dialector.Migrator(db).(mysql.Migrator)
 	if !d.isDingo() {
 		return m

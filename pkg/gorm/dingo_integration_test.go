@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"dingoscheduler/internal/authority"
+	"dingoscheduler/internal/dao"
 	"dingoscheduler/internal/data"
 	"dingoscheduler/internal/model"
 	"dingoscheduler/pkg/config"
+	manager "dingoscheduler/pkg/proto/manager"
 	driver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -220,6 +222,34 @@ func TestDatabaseMigrationCompatibility(t *testing.T) {
 			}
 			if repo.Sha != "new-sha" {
 				t.Fatal("legacy update was not persisted")
+			}
+			// Real heartbeat and inventory writes must not become NULL when
+			// the clock supplies more precision than DingoDB can parse.
+			heartbeatAt := now.Add(456789 * time.Nanosecond)
+			health := dao.NewDingospeedDao(base)
+			if err := health.HeartbeatHealth(context.Background(), &manager.HeartbeatRequest{Id: 104, InstanceId: "legacy-node", Online: true}, nil, heartbeatAt); err != nil {
+				t.Fatal(err)
+			}
+			var speed model.Dingospeed
+			if err := db.First(&speed, 104).Error; err != nil {
+				t.Fatal(err)
+			}
+			wantHeartbeat := heartbeatAt.Truncate(time.Second)
+			if strings.Contains(strings.ToLower(version), "dingodb") {
+				wantHeartbeat = heartbeatAt.Truncate(time.Millisecond)
+			}
+			if !speed.UpdatedAt.Equal(wantHeartbeat) {
+				t.Fatalf("heartbeat timestamp lost: got=%s want=%s", speed.UpdatedAt, wantHeartbeat)
+			}
+			if err := db.Model(&model.UploadInventoryState{}).Where("instance_id = ?", state.InstanceID).Updates(map[string]interface{}{"last_attempt_at": heartbeatAt, "last_confirmed_at": &heartbeatAt}).Error; err != nil {
+				t.Fatal(err)
+			}
+			var confirmed model.UploadInventoryState
+			if err := db.First(&confirmed, "instance_id = ?", state.InstanceID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if !confirmed.LastAttemptAt.Equal(heartbeatAt.Truncate(time.Millisecond)) || confirmed.LastConfirmedAt == nil || !confirmed.LastConfirmedAt.Equal(heartbeatAt.Truncate(time.Millisecond)) {
+				t.Fatalf("inventory timestamp lost: %+v", confirmed)
 			}
 			verifyEvolution(t, db, log)
 			verifyTimestampEvolution(t, db, log, strings.Contains(strings.ToLower(version), "dingodb"), now)

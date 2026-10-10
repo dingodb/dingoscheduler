@@ -16,7 +16,7 @@ func TestMysqlDialectSelectionAndTypes(t *testing.T) {
 	for _, version := range []string{"8.0.46", "5.7.44", "10.11.6-MariaDB", "8.0.11-TiDB-v8.1.0", "5.7.41-DingoDB-f7c8a95", "8.0.41-DingoDB-v3.0.0"} {
 		t.Run(version, func(t *testing.T) {
 			precision := 3
-			d := mysqlCompatibilityDialector{&mysql.Dialector{Config: &mysql.Config{ServerVersion: version, DefaultDatetimePrecision: &precision}}}
+			d := mysqlCompatibilityDialector{Dialector: &mysql.Dialector{Config: &mysql.Config{ServerVersion: version, DefaultDatetimePrecision: &precision}}}
 			s, err := schema.Parse(&struct {
 				ID       int64     `gorm:"primaryKey"`
 				At       time.Time `gorm:"not null"`
@@ -56,8 +56,8 @@ func TestDingoIndexInspectionFailureIsReturned(t *testing.T) {
 		t.Fatal(err)
 	}
 	conn.Close()
-	d := mysqlCompatibilityDialector{&mysql.Dialector{Config: &mysql.Config{Conn: conn, ServerVersion: "8.0.41-DingoDB-v3.0.0", SkipInitializeWithVersion: true}}}
-	db, err := gorm.Open(d, &gorm.Config{DisableAutomaticPing: true})
+	d := mysqlCompatibilityDialector{Dialector: &mysql.Dialector{Config: &mysql.Config{Conn: conn, ServerVersion: "8.0.41-DingoDB-v3.0.0", SkipInitializeWithVersion: true}}}
+	db, err := gorm.Open(&d, &gorm.Config{DisableAutomaticPing: true})
 	if err != nil {
 		t.Fatal(err)
 	}
