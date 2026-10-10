@@ -37,6 +37,7 @@ Speed 丢失序号但 Scheduler 已有代次时不会擅自从 1 上报，必须
 
 ## 接口
 
+- `GET /api/v1/upload-inventory/sources`：按 namespace、repoType、完整 repo、path、sha256、size 查询上传文件同步源；`excludeInstanceId` 可排除目标节点。仅返回五分钟内有心跳且有合法管理端点的候选，接收方仍须验证实际内容。
 - `POST /api/v1/upload-inventory/reports`：v2 报告，单请求上限 128 MiB。
 - `POST /api/v1/upload-inventory/nodes/:instanceId/session`：首次基线和重连控制状态，不自行扫描磁盘。
 - `POST /api/v1/upload-inventory/nodes/:instanceId/reconcile`：显式创建/重试投递对账任务。
@@ -46,6 +47,8 @@ Speed 丢失序号但 Scheduler 已有代次时不会擅自从 1 上报，必须
 - Spinfield `GET/POST /api/v1/node-settings/:nodeId/inventory-reconcile`：经节点管理权限校验后访问 Scheduler。
 
 原上传库存 repositories/files/nodes 文件查询接口保持不变。节点离线仅影响可用性，保留最后持有关系。原远端下载接口不变。
+
+同步源发现分步查询精确文件身份、持有关系及相关节点/端点，避免 DingoDB 的相关多表子查询规划错误。一个实例的 online/offline 模式可复用不同注册 ID，端点选择以有效注册的最新心跳为准，不使用最大 ID 推断当前注册。
 
 ## 配置与限制
 

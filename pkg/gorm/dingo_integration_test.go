@@ -18,6 +18,7 @@ import (
 	"dingoscheduler/internal/model"
 	"dingoscheduler/pkg/config"
 	manager "dingoscheduler/pkg/proto/manager"
+	"dingoscheduler/pkg/repository"
 	driver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -253,7 +254,48 @@ func TestDatabaseMigrationCompatibility(t *testing.T) {
 			}
 			verifyEvolution(t, db, log)
 			verifyTimestampEvolution(t, db, log, strings.Contains(strings.ToLower(version), "dingodb"), now)
+			verifySyncSources(t, base)
 		})
+	}
+}
+
+func verifySyncSources(t *testing.T, base *data.BaseData) {
+	t.Helper()
+	now := time.Now()
+	file := model.UploadInventoryFile{
+		IdentityHash: "ec8b974e9a61f569de656b1923afdd6ed7a0ed99c9ccbb341c87ee60eca397c2",
+		Namespace:    "org", RepoType: "models", Repo: "repo", Path: "live.bin", SHA256: strings.Repeat("a", 64), Size: 42,
+	}
+	for _, row := range []interface{}{
+		&file,
+		&model.Dingospeed{ID: 105, InstanceID: "legacy-node", Host: "127.0.0.1", Port: 18081, UpdatedAt: now.Add(-10 * time.Minute)},
+		&model.NodeEndpoint{NodeID: 104, ManagementURL: "http://current-source:18080"},
+		&model.NodeEndpoint{NodeID: 105, ManagementURL: "http://stale-source:18081"},
+	} {
+		if err := base.BizDB.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := base.BizDB.Create(&model.UploadInventoryHolding{FileID: file.ID, InstanceID: "legacy-node", Sequence: 1, ConfirmedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := dao.NewDingospeedDao(base).HeartbeatHealth(context.Background(), &manager.HeartbeatRequest{Id: 104, InstanceId: "legacy-node", Online: true}, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	r := dao.NewRepositoryDao(base, nil, nil, nil, nil, nil)
+	q := dao.SyncSourceQuery{Key: repository.Key{Namespace: file.Namespace, RepoType: file.RepoType, Repo: file.Repo}, Path: file.Path, SHA256: file.SHA256, Size: file.Size}
+	sources, err := r.UploadedSyncSources(context.Background(), q)
+	if err != nil || len(sources) != 1 || sources[0].InstanceID != "legacy-node" || sources[0].ManagementURL != "http://current-source:18080" {
+		t.Fatalf("live source discovery failed: sources=%+v err=%v", sources, err)
+	}
+	q.Size++
+	if sources, err = r.UploadedSyncSources(context.Background(), q); err != nil || len(sources) != 0 {
+		t.Fatalf("wrong size returned a live source: sources=%+v err=%v", sources, err)
+	}
+	q.Size--
+	q.ExcludeInstanceID = "legacy-node"
+	if sources, err = r.UploadedSyncSources(context.Background(), q); err != nil || len(sources) != 0 {
+		t.Fatalf("excluded target returned as a source: sources=%+v err=%v", sources, err)
 	}
 }
 
