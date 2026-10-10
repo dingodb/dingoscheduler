@@ -83,10 +83,10 @@ func (m dingoMigrator) GetIndexes(value interface{}) ([]gorm.Index, error) {
 		// information_schema.statistics uses the index's own table name for
 		// secondary indexes in DingoDB. SHOW INDEX retains the owning table.
 		var rows []struct {
-			KeyName    string `gorm:"column:Key_name"`
-			ColumnName string `gorm:"column:Column_name"`
-			NonUnique  int    `gorm:"column:Non_unique"`
-			Seq        int    `gorm:"column:Seq_in_index"`
+			KeyName    string `gorm:"column:key_name"`
+			ColumnName string `gorm:"column:column_name"`
+			NonUnique  int    `gorm:"column:non_unique"`
+			Seq        int    `gorm:"column:seq_in_index"`
 		}
 		if err := m.DB.Raw("SHOW INDEX FROM ?", m.CurrentTable(stmt)).Scan(&rows).Error; err != nil {
 			return err
