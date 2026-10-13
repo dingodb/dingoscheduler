@@ -15,6 +15,7 @@
 package dao
 
 import (
+	"context"
 	"fmt"
 
 	"dingoscheduler/internal/data"
@@ -59,11 +60,16 @@ func SaveRecordBySql(tx *gorm.DB, record *model.ModelFileRecord) (int64, error) 
 }
 
 func (d *ModelFileRecordDao) FirstModelFileRecord(condition *query.ModelFileRecordQuery) (*model.ModelFileRecord, error) {
+	return d.FirstModelFileRecordContext(context.Background(), condition)
+}
+
+// FirstModelFileRecordContext 随调用方取消：数据库卡住时，已超时的调度请求不再占用写锁。
+func (d *ModelFileRecordDao) FirstModelFileRecordContext(ctx context.Context, condition *query.ModelFileRecordQuery) (*model.ModelFileRecord, error) {
 	if _, err := repository.FromWire(condition.Datatype, condition.Org, condition.Repo); err != nil {
 		return nil, err
 	}
 	var records []*model.ModelFileRecord
-	db := d.baseData.BizDB.Model(&model.ModelFileRecord{}).Select("id")
+	db := d.baseData.BizDB.WithContext(ctx).Model(&model.ModelFileRecord{}).Select("id")
 	db = db.Where("datatype = ? AND org = ? AND repo = ?", condition.Datatype, condition.Org, condition.Repo)
 	if condition.Etag != "" {
 		db = db.Where("etag = ?", condition.Etag)
