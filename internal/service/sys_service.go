@@ -70,9 +70,12 @@ func (s SysService) repairJobRunStatus() error {
 		zap.S().Errorf("GetUnmountRepository err.%v", err)
 	} else {
 		for _, i := range unCacheJobs {
+			// UpdateStatusAndRepo requires the owning instance; without it every
+			// job left in "stopping" made startup panic.
 			err = s.cacheJobDao.UpdateStatusAndRepo(&query.UpdateJobStatusReq{
-				Id:     i.ID,
-				Status: consts.RunningStatusJobStop,
+				Id:         i.ID,
+				InstanceId: i.InstanceId,
+				Status:     consts.RunningStatusJobStop,
 			})
 			if err != nil {
 				return err
