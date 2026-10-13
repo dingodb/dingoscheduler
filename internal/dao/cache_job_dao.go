@@ -16,6 +16,7 @@ package dao
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"dingoscheduler/internal/data"
@@ -90,18 +91,40 @@ func (c *CacheJobDao) UpdateCacheStatus(statusReq *query.UpdateJobStatusReq) err
 		}
 		newMsgStr = strings.ReplaceAll(string(msgStr), "'", "''")
 	}
-	var sql string
+	sets := fmt.Sprintf("status = %d, error_msg = '%s', updated_at = '%s'", statusReq.Status, newMsgStr, util.GetCurrentTimeStr())
 	if statusReq.Process > 0 {
-		sql = fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s', process = %f WHERE id = %d",
-			statusReq.Status, newMsgStr, util.GetCurrentTimeStr(), statusReq.Process, statusReq.Id)
-	} else {
-		sql = fmt.Sprintf("UPDATE cache_job SET  status = %d, error_msg = '%s', updated_at = '%s' WHERE id = %d",
-			statusReq.Status, newMsgStr, util.GetCurrentTimeStr(), statusReq.Id)
+		sets += fmt.Sprintf(", process = %f", statusReq.Process)
+	}
+	if statusReq.UsedStorage > 0 {
+		sets += fmt.Sprintf(", used_storage = %d", statusReq.UsedStorage)
+	}
+	sql := fmt.Sprintf("UPDATE cache_job SET %s WHERE id = %d", sets, statusReq.Id)
+	if statusReq.Status == consts.RunningStatusJobIng {
+		// A "running" report can arrive after the job already stopped or
+		// finished (it is sent once preparation completes); never regress those.
+		sql += cacheJobStatusIn(consts.RunningStatusJobIng, consts.RunningStatusJobBreak, consts.RunningStatusJobWait)
 	}
 	if err := c.baseData.BizDB.Exec(sql).Error; err != nil {
 		return err
 	}
 	return nil
+}
+
+// MarkCacheJobResumed shows a resumed job as running. Speed only reports when a
+// job ends, so without this the job keeps its interrupted/stopped status for
+// the whole download. A job that already left the resumable states is kept.
+func (c *CacheJobDao) MarkCacheJobResumed(id int64) error {
+	sql := fmt.Sprintf("UPDATE cache_job SET status = %d, error_msg = '', updated_at = '%s' WHERE id = %d", consts.RunningStatusJobIng, util.GetCurrentTimeStr(), id) +
+		cacheJobStatusIn(consts.RunningStatusJobBreak, consts.RunningStatusJobStop, consts.RunningStatusJobWait)
+	return c.baseData.BizDB.Exec(sql).Error
+}
+
+func cacheJobStatusIn(statuses ...int32) string {
+	values := make([]string, len(statuses))
+	for i, status := range statuses {
+		values[i] = strconv.Itoa(int(status))
+	}
+	return " AND status IN (" + strings.Join(values, ", ") + ")"
 }
 
 func (c *CacheJobDao) UpdateStatusAndRepo(jobStatusReq *query.UpdateJobStatusReq) error {

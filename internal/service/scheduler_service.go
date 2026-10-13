@@ -490,13 +490,14 @@ func (s *SchedulerService) CreateCacheJob(ctx context.Context, req *pb.CreateCac
 
 func (s *SchedulerService) UpdateCacheJobStatus(ctx context.Context, req *pb.UpdateCacheJobStatusReq) (*emptypb.Empty, error) {
 	err := s.cacheJobDao.UpdateStatusAndRepo(&query.UpdateJobStatusReq{
-		Id:         req.Id,
-		InstanceId: req.InstanceId,
-		Status:     req.Status,
-		ErrorMsg:   req.ErrorMsg,
-		Org:        req.Org,
-		Repo:       req.Repo,
-		Process:    req.Process,
+		Id:          req.Id,
+		InstanceId:  req.InstanceId,
+		Status:      req.Status,
+		ErrorMsg:    req.ErrorMsg,
+		Org:         req.Org,
+		Repo:        req.Repo,
+		Process:     req.Process,
+		UsedStorage: req.UsedStorage,
 	})
 	if err != nil {
 		return nil, err

@@ -61,13 +61,14 @@ type RealtimeResp struct {
 }
 
 type UpdateJobStatusReq struct {
-	Id         int64   `json:"id"`
-	InstanceId string  `json:"instanceId"`
-	Status     int32   `json:"status"`
-	ErrorMsg   string  `json:"errorMsg"`
-	Org        string  `json:"org"`
-	Repo       string  `json:"repo"`
-	Process    float32 `json:"process"`
+	Id          int64   `json:"id"`
+	InstanceId  string  `json:"instanceId"`
+	Status      int32   `json:"status"`
+	ErrorMsg    string  `json:"errorMsg"`
+	Org         string  `json:"org"`
+	Repo        string  `json:"repo"`
+	Process     float32 `json:"process"`
+	UsedStorage int64   `json:"usedStorage"`
 }
 
 type UpdateMountStatusReq struct {
