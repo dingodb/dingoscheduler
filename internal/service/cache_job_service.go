@@ -238,7 +238,7 @@ func (c *CacheJobService) ResumeCacheJob(resumeCacheJobReq *query.ResumeCacheJob
 	if err != nil {
 		return err
 	}
-	return nil
+	return c.cacheJobDao.MarkCacheJobResumed(cacheJob.ID)
 }
 
 func (c *CacheJobService) DeleteCacheJob(id int64) error {
