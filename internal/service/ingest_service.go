@@ -7,7 +7,9 @@ import (
 )
 
 func (s *SchedulerService) IngestRepository(ctx context.Context, req *pb.IngestRepositoryRequest) (*pb.IngestRepositoryResponse, error) {
-	s.writeMu.Lock()
+	if err := s.writeMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.writeMu.Unlock()
 	return s.repositoryDao.IngestPublished(ctx, req)
 }

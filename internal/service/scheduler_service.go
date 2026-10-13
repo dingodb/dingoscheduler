@@ -53,7 +53,7 @@ type SchedulerService struct {
 	repositoryDao       *dao.RepositoryDao
 	cacheJobDao         *dao.CacheJobDao
 	scheudlerLock       sync.Mutex
-	writeMu             sync.Mutex
+	writeMu             ctxMutex
 }
 
 func NewSchedulerService(
@@ -203,7 +203,9 @@ func (s *SchedulerService) getApiLock(apiPath string) *sync.RWMutex {
 }
 
 func (s *SchedulerService) SchedulerFile(ctx context.Context, req *pb.SchedulerFileRequest) (*pb.SchedulerFileResponse, error) {
-	s.writeMu.Lock()
+	if err := s.writeMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.writeMu.Unlock()
 	key, err := repository.FromWire(req.DataType, req.Org, req.Repo)
 	if err != nil {
@@ -219,7 +221,7 @@ func (s *SchedulerService) SchedulerFile(ctx context.Context, req *pb.SchedulerF
 	lock := s.getApiLock(schedulerFilePath)
 	lock.Lock()
 	defer lock.Unlock()
-	record, err := s.modelFileRecordDao.FirstModelFileRecord(&query.ModelFileRecordQuery{
+	record, err := s.modelFileRecordDao.FirstModelFileRecordContext(ctx, &query.ModelFileRecordQuery{
 		Datatype: req.DataType,
 		Org:      req.Org,
 		Repo:     req.Repo,
@@ -332,7 +334,7 @@ func (s *SchedulerService) SyncFileProcess(ctx context.Context, req *pb.SyncFile
 		return nil, nil
 	}
 	for _, fileProcess := range req.FileProcessEntries {
-		_, err := s.SingleFileProcess(fileProcess)
+		_, err := s.SingleFileProcess(ctx, fileProcess)
 		if err != nil {
 			return nil, err
 		}
@@ -340,8 +342,10 @@ func (s *SchedulerService) SyncFileProcess(ctx context.Context, req *pb.SyncFile
 	return nil, nil
 }
 
-func (s *SchedulerService) SingleFileProcess(processEntry *pb.FileProcessEntry) (*emptypb.Empty, error) {
-	s.writeMu.Lock()
+func (s *SchedulerService) SingleFileProcess(ctx context.Context, processEntry *pb.FileProcessEntry) (*emptypb.Empty, error) {
+	if err := s.writeMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.writeMu.Unlock()
 	key, err := repository.FromWire(processEntry.DataType, processEntry.Org, processEntry.Repo)
 	if err != nil {
@@ -369,7 +373,7 @@ func (s *SchedulerService) SingleFileProcess(processEntry *pb.FileProcessEntry) 
 			return nil, err
 		}
 	} else {
-		record, err := s.modelFileRecordDao.FirstModelFileRecord(&query.ModelFileRecordQuery{
+		record, err := s.modelFileRecordDao.FirstModelFileRecordContext(ctx, &query.ModelFileRecordQuery{
 			Datatype: processEntry.DataType,
 			Org:      processEntry.Org,
 			Repo:     processEntry.Repo,
@@ -432,7 +436,9 @@ func (s *SchedulerService) ReportFileProcess(ctx context.Context, req *pb.FilePr
 }
 
 func (s *SchedulerService) DeleteByEtagsAndFields(ctx context.Context, req *pb.DeleteByEtagsAndFieldsRequest) (*emptypb.Empty, error) {
-	s.writeMu.Lock()
+	if err := s.writeMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.writeMu.Unlock()
 	if _, err := repository.FromWire(req.Datatype, req.Org, req.Repo); err != nil {
 		return nil, err
