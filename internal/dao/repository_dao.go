@@ -237,22 +237,43 @@ func (r *RepositoryDao) cachePipelineTags() (map[string]string, error) {
 }
 
 func (r *RepositoryDao) verifyRepoComplete(metaData *dto.CommitHfSha, instanceId, datatype, org, repo string) (bool, error) {
+	type cachedFile struct {
+		Name     string
+		Etag     string
+		FileSize int64
+	}
+	needed := 0
 	for _, file := range metaData.Siblings {
 		if file.BlobID == "" || file.Size == nil {
 			return false, fmt.Errorf("missing file identity")
 		}
+		// Speed never schedules or reports a zero-byte file, so it has no
+		// record; there is nothing to cache.
+		if *file.Size > 0 {
+			needed++
+		}
+	}
+	if needed == 0 {
+		return true, nil
+	}
+	// One query for the whole repository: a per-file count took ~2s each on
+	// DingoDB, i.e. hours for datasets with thousands of files.
+	var rows []cachedFile
+	if err := r.baseData.BizDB.Table("model_file_record r").Joins("JOIN model_file_process p ON p.record_id = r.id").
+		Select("r.name, r.etag, r.file_size").
+		Where("r.datatype = ? AND r.org = ? AND r.repo = ? AND p.instance_id = ? AND p.offset_num = r.file_size", datatype, org, repo, instanceId).
+		Find(&rows).Error; err != nil {
+		return false, err
+	}
+	cached := make(map[cachedFile]struct{}, len(rows))
+	for _, row := range rows {
+		cached[row] = struct{}{}
+	}
+	for _, file := range metaData.Siblings {
 		if *file.Size == 0 {
-			// Speed never schedules or reports a zero-byte file, so it has no
-			// record; there is nothing to cache.
 			continue
 		}
-		var count int64
-		err := r.baseData.BizDB.Table("model_file_record r").Joins("JOIN model_file_process p ON p.record_id = r.id").
-			Where("r.datatype = ? AND r.org = ? AND r.repo = ? AND r.name = ? AND r.etag = ? AND r.file_size = ? AND p.instance_id = ? AND p.offset_num = r.file_size", datatype, org, repo, file.Rfilename, file.BlobID, *file.Size, instanceId).Count(&count).Error
-		if err != nil {
-			return false, err
-		}
-		if count == 0 {
+		if _, ok := cached[cachedFile{Name: file.Rfilename, Etag: file.BlobID, FileSize: *file.Size}]; !ok {
 			return false, nil
 		}
 	}
