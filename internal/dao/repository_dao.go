@@ -241,6 +241,11 @@ func (r *RepositoryDao) verifyRepoComplete(metaData *dto.CommitHfSha, instanceId
 		if file.BlobID == "" || file.Size == nil {
 			return false, fmt.Errorf("missing file identity")
 		}
+		if *file.Size == 0 {
+			// Speed never schedules or reports a zero-byte file, so it has no
+			// record; there is nothing to cache.
+			continue
+		}
 		var count int64
 		err := r.baseData.BizDB.Table("model_file_record r").Joins("JOIN model_file_process p ON p.record_id = r.id").
 			Where("r.datatype = ? AND r.org = ? AND r.repo = ? AND r.name = ? AND r.etag = ? AND r.file_size = ? AND p.instance_id = ? AND p.offset_num = r.file_size", datatype, org, repo, file.Rfilename, file.BlobID, *file.Size, instanceId).Count(&count).Error
