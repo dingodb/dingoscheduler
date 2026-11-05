@@ -213,15 +213,41 @@ func TestPinnedTreeResolvesHFFileIdentity(t *testing.T) {
 		if r.Method != "GET" || r.URL.Query().Get("recursive") != "true" || r.URL.Query().Get("revision") != "pinned" || r.Header.Get("Authorization") != "Bearer hf" {
 			t.Errorf("unexpected tree: %s %s", r.Method, r.URL)
 		}
-		fmt.Fprint(w, `[{"type":"file","path":"weights.bin","oid":"git-pointer","size":120,"lfs":{"oid":"content","size":8}}]`)
+		fmt.Fprintf(w, "%s", `[{"type":"file","path":"nested/weights|part%2F.bin","oid":"git-pointer","size":120,"lfs":{"oid":"content","size":8}}]`)
 	}))
 	defer srv.Close()
 	var meta dto.CommitHfSha
-	json.Unmarshal([]byte(`{"sha":"pinned","siblings":[{"rfilename":"weights.bin"}]}`), &meta)
+	json.Unmarshal([]byte(`{"sha":"pinned","siblings":[{"rfilename":"nested/weights|part%2F.bin"}]}`), &meta)
 	if err := (&RepositoryDao{}).resolveFileIdentities(&meta, srv.URL, repository.Key{Namespace: "huggingface", RepoType: "models", Repo: "owner/demo"}, map[string]string{"Authorization": "Bearer hf"}); err != nil {
 		t.Fatal(err)
 	}
 	if meta.Siblings[0].BlobID != "content" || meta.UsedStorage != 8 {
 		t.Fatalf("unresolved metadata: %+v", meta)
+	}
+}
+
+func TestPinnedTreeKeepsLiteralBackslashFileIdentity(t *testing.T) {
+	names := []string{`samples\image.webp`, "samples/image.webp", `nested/name\piece.bin`}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode([]map[string]interface{}{{"type": "file", "path": name, "oid": "git-pointer", "size": 120, "lfs": map[string]interface{}{"oid": "content", "size": 8}}})
+			}))
+			defer srv.Close()
+			encoded, err := json.Marshal(map[string]interface{}{"sha": "pinned", "siblings": []map[string]interface{}{{"rfilename": name}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var meta dto.CommitHfSha
+			if err := json.Unmarshal(encoded, &meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := (&RepositoryDao{}).resolveFileIdentities(&meta, srv.URL, repository.Key{Namespace: "huggingface", RepoType: "models", Repo: "owner/demo"}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if meta.Siblings[0].Rfilename != name || meta.Siblings[0].BlobID != "content" || meta.UsedStorage != 8 {
+				t.Fatalf("file identity changed: %+v", meta)
+			}
+		})
 	}
 }

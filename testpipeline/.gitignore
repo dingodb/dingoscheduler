@@ -1,0 +1,8 @@
+.local/
+.runs/
+secrets/
+certs/
+*.key
+*.pem
+*.p12
+*.pfx

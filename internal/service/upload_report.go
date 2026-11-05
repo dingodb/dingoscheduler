@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -24,76 +23,31 @@ func (s *SchedulerService) UploadReportStatus(ctx context.Context, id string) (m
 }
 
 func (s *SchedulerService) UploadReconcileProgress(ctx context.Context, id, epoch, status, message string) error {
-	if status != "scanning" && status != "retrying" && status != "needs_attention" {
+	if epoch == "" || (status != "scanning" && status != "retrying" && status != "needs_attention") {
 		return fmt.Errorf("invalid reconciliation status")
 	}
 	if len(message) > 4096 {
 		message = message[:4096]
 	}
-	return s.baseData.BizDB.WithContext(ctx).Model(&model.UploadReportNode{}).Where("instance_id = ? AND pending_epoch = ? AND pending_epoch <> ''", id, epoch).Updates(map[string]any{"status": status, "error": message}).Error
+	return s.baseData.BizDB.WithContext(ctx).Model(&model.UploadReportNode{}).Where("instance_id = ? AND ((pending_epoch = ? AND pending_epoch <> '') OR (pending_epoch = '' AND epoch = ? AND ? = 'needs_attention'))", id, epoch, epoch, status).Updates(map[string]any{"status": status, "error": message}).Error
 }
 func (s *SchedulerService) ReconcileUploadInventory(ctx context.Context, id string) (model.UploadReportNode, error) {
 	n, err := s.repositoryDao.UploadReportSession(ctx, id, true)
 	if err != nil {
 		return n, err
 	}
-	// Delivery is only a wake-up. The durable pending epoch is also returned on reconnection.
+	// One wake-up per explicit request. Failed delivery stays durable for the
+	// next explicit reconciliation or Speed startup/reconnection; never push retries.
 	err = s.deliverInventoryReconcile(ctx, n)
 	if err != nil {
-		n.Error = err.Error()
-		s.retryInventoryDelivery(n)
+		n.Status, n.Error = "needs_attention", err.Error()
+		if stateErr := s.UploadReconcileProgress(ctx, id, n.PendingEpoch, n.Status, n.Error); stateErr != nil {
+			return n, fmt.Errorf("persist reconciliation delivery failure: %w", stateErr)
+		}
 	}
 	return n, nil
 }
 
-var inventoryDeliveries sync.Map
-
-func (s *SchedulerService) resumeInventoryReconciles() {
-	if s.baseData == nil || s.baseData.BizDB == nil {
-		return
-	}
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		var pending []model.UploadReportNode
-		err := s.baseData.BizDB.WithContext(ctx).Where("pending_epoch <> ''").Find(&pending).Error
-		cancel()
-		if err == nil {
-			for _, n := range pending {
-				s.retryInventoryDelivery(n)
-			}
-			return
-		}
-		time.Sleep(10 * time.Second)
-	}
-}
-func (s *SchedulerService) retryInventoryDelivery(n model.UploadReportNode) {
-	key := n.InstanceID + "/" + n.PendingEpoch
-	if _, loaded := inventoryDeliveries.LoadOrStore(key, true); loaded {
-		return
-	}
-	go func() {
-		defer inventoryDeliveries.Delete(key)
-		for delay := time.Second; ; {
-			time.Sleep(delay)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			current, err := s.repositoryDao.UploadReportStatus(ctx, n.InstanceID)
-			if err == nil && current.PendingEpoch != n.PendingEpoch {
-				cancel()
-				return
-			}
-			if err == nil {
-				err = s.deliverInventoryReconcile(ctx, n)
-			}
-			cancel()
-			if err == nil {
-				return
-			}
-			if delay < time.Minute {
-				delay *= 2
-			}
-		}
-	}()
-}
 func (s *SchedulerService) deliverInventoryReconcile(ctx context.Context, n model.UploadReportNode) error {
 	var endpoint model.NodeEndpoint
 	err := s.baseData.BizDB.WithContext(ctx).Where("node_id = (?)", s.baseData.BizDB.Model(&model.Dingospeed{}).Select("MAX(id)").Where("instance_id = ?", n.InstanceID)).Take(&endpoint).Error

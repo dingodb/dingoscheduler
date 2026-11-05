@@ -72,7 +72,7 @@ func (r *RepositoryDao) resolveFileIdentities(meta *dto.CommitHfSha, domain stri
 	var total int64
 	for i := range meta.Siblings {
 		file := &meta.Siblings[i]
-		if repository.ValidatePath(file.Rfilename, true) != nil || seen[file.Rfilename] {
+		if key.FilePath(file.Rfilename) != nil || seen[file.Rfilename] {
 			return fmt.Errorf("invalid or duplicate snapshot path")
 		}
 		seen[file.Rfilename] = true

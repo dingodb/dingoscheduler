@@ -19,7 +19,7 @@ import (
 func lockReportNode(tx *gorm.DB, id string) (model.UploadReportNode, error) {
 	n := model.UploadReportNode{InstanceID: id, Status: "uninitialized"}
 	if id == "" || len(id) > 191 {
-		return n, fmt.Errorf("invalid node identity")
+		return n, inv.Reject("invalid_inventory_report", "invalid node identity")
 	}
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&n).Error; err != nil {
 		return n, err
@@ -35,7 +35,7 @@ func (r *RepositoryDao) UploadReportSession(ctx context.Context, id string, expl
 			return err
 		}
 		if count == 0 {
-			return fmt.Errorf("node is not registered")
+			return inv.Reject("invalid_inventory_report", "node is not registered")
 		}
 		var e error
 		out, e = lockReportNode(tx, id)
@@ -113,10 +113,12 @@ func validateReportKey(k inv.Key) error {
 // Epoch, watermark and holdings commit together; a lost response can be retried verbatim.
 func (r *RepositoryDao) ApplyUploadReport(ctx context.Context, p *inv.Report) (ack inv.Ack, err error) {
 	if err = validateReport(p); err != nil {
+		err = inv.Reject("invalid_inventory_report", err.Error())
 		return
 	}
 	ack = inv.Ack{Epoch: p.Epoch, Sequence: p.Sequence, Digest: p.Digest(), Status: "accepted"}
-	err = r.baseData.BizDB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = inventoryTransaction(ctx, r.baseData.BizDB, func(tx *gorm.DB) error {
+		ack.Status = "accepted"
 		n, e := lockReportNode(tx, p.InstanceID)
 		if e != nil {
 			return e
@@ -125,17 +127,17 @@ func (r *RepositoryDao) ApplyUploadReport(ctx context.Context, p *inv.Report) (a
 		if p.Baseline {
 			if n.Epoch == p.Epoch {
 				if n.BaselineDigest != ack.Digest {
-					return fmt.Errorf("baseline content conflict")
+					return inv.Reject("inventory_report_conflict", "baseline content conflict")
 				}
 				ack.Status = "confirmed"
 				return nil
 			}
 			if n.PendingEpoch != p.Epoch {
-				return fmt.Errorf("baseline epoch is not authorized")
+				return inv.Reject("inventory_report_conflict", "baseline epoch is not authorized")
 			}
 		} else {
 			if n.Epoch != p.Epoch {
-				return fmt.Errorf("report epoch is obsolete; explicit reconciliation required")
+				return inv.Reject("inventory_report_conflict", "report epoch is obsolete; explicit reconciliation required")
 			}
 			h := sha256.Sum256([]byte(p.InstanceID + "\x00" + p.Key.ID()))
 			state.RepoHash = hex.EncodeToString(h[:])
@@ -145,7 +147,7 @@ func (r *RepositoryDao) ApplyUploadReport(ctx context.Context, p *inv.Report) (a
 			}
 			if e == nil && state.Sequence >= p.Sequence {
 				if state.Sequence == p.Sequence && state.Digest != ack.Digest {
-					return fmt.Errorf("sequence content conflict")
+					return inv.Reject("inventory_report_conflict", "sequence content conflict")
 				}
 				ack.Status = "confirmed"
 				if state.Sequence > p.Sequence {
@@ -165,15 +167,9 @@ func (r *RepositoryDao) ApplyUploadReport(ctx context.Context, p *inv.Report) (a
 		}
 		for _, f := range p.Files {
 			item := UploadedInventoryItem{Namespace: f.Namespace, RepoType: f.RepoType, Repo: f.Repo, Path: f.Path, SHA256: f.SHA256, Size: f.Size}
-			file := model.UploadInventoryFile{IdentityHash: uploadIdentity(&item), Namespace: f.Namespace, RepoType: f.RepoType, Repo: f.Repo, Path: f.Path, SHA256: f.SHA256, Size: f.Size}
-			if e = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&file).Error; e != nil {
-				return e
-			}
-			if e = tx.Where("identity_hash = ?", file.IdentityHash).Take(&file).Error; e != nil {
-				return e
-			}
-			if file.Size != f.Size || file.Namespace != f.Namespace || file.RepoType != f.RepoType || file.Repo != f.Repo || file.Path != f.Path || file.SHA256 != f.SHA256 {
-				return fmt.Errorf("file identity conflict")
+			file, fileErr := ensureInventoryFile(tx, &item)
+			if fileErr != nil {
+				return fileErr
 			}
 			if e = tx.Create(&model.UploadInventoryHolding{FileID: file.ID, InstanceID: p.InstanceID, Sequence: p.Sequence, ConfirmedAt: time.Now().UTC()}).Error; e != nil {
 				return e

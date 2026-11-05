@@ -133,7 +133,8 @@ func uploadIdentity(item *UploadedInventoryItem) string {
 // mark confirmation state and never mutate holdings. Complete snapshots replace
 // exactly one node's upload holdings and cannot touch remote-domain tables.
 func (r *RepositoryDao) ApplyUploadedInventory(ctx context.Context, snap *UploadedInventorySnapshot) (accepted bool, count, total int64, err error) {
-	err = r.baseData.BizDB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = inventoryTransaction(ctx, r.baseData.BizDB, func(tx *gorm.DB) error {
+		accepted, count, total = false, 0, 0
 		if tx.Migrator().HasTable(&model.UploadReportNode{}) {
 			node, e := lockReportNode(tx, snap.InstanceID)
 			if e != nil {
@@ -175,16 +176,9 @@ func (r *RepositoryDao) ApplyUploadedInventory(ctx context.Context, snap *Upload
 		fileIDs := make([]int64, 0, len(snap.Items))
 		for i := range snap.Items {
 			item := &snap.Items[i]
-			identity := uploadIdentity(item)
-			file := model.UploadInventoryFile{IdentityHash: identity, Namespace: item.Namespace, RepoType: item.RepoType, Repo: item.Repo, Path: item.Path, SHA256: item.SHA256, Size: item.Size}
-			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "identity_hash"}}, DoNothing: true}).Create(&file).Error; err != nil {
+			file, err := ensureInventoryFile(tx, item)
+			if err != nil {
 				return err
-			}
-			if err := tx.Where("identity_hash = ?", identity).Take(&file).Error; err != nil {
-				return err
-			}
-			if file.Size != item.Size || file.Namespace != item.Namespace || file.RepoType != item.RepoType || file.Repo != item.Repo || file.Path != item.Path || file.SHA256 != item.SHA256 {
-				return fmt.Errorf("uploaded inventory identity collision or size conflict")
 			}
 			fileIDs = append(fileIDs, file.ID)
 			holding := model.UploadInventoryHolding{FileID: file.ID, InstanceID: snap.InstanceID, Sequence: snap.Sequence, ConfirmedAt: snap.GeneratedAt.UTC()}
