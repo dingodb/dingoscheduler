@@ -1,0 +1,3 @@
+# Exclude test helpers and their local credentials, certificates and run output.
+# Build context must be this repository root (as in the Makefile docker target).
+/testpipeline/

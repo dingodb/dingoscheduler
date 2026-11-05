@@ -114,15 +114,7 @@ func (s *Service) Do(ctx context.Context, r Request) (any, error) {
 	case "manifest":
 		return s.manifest(ctx, r)
 	case "nodes":
-		var nodes []model.Dingospeed
-		if err := s.DB.WithContext(ctx).Where("instance_id IN (?)", s.DB.Model(&model.UploadInventoryHolding{}).Select("instance_id").Where("file_id IN (?)", s.DB.Model(&model.UploadInventoryFile{}).Select("id").Where("namespace = ? AND repo_type = ? AND repo = ?", r.Namespace, r.RepoType, r.Repo))).Find(&nodes).Error; err != nil {
-			return nil, err
-		}
-		out := []map[string]any{}
-		for _, n := range nodes {
-			out = append(out, map[string]any{"node": n.InstanceID, "online": time.Since(n.UpdatedAt) < 5*time.Minute})
-		}
-		return map[string]any{"items": out}, nil
+		return s.sourceNodes(ctx, r.Key)
 	case "revisions":
 		var out []struct {
 			Name   string `json:"name"`

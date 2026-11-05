@@ -72,7 +72,6 @@ func NewSchedulerService(
 		repositoryDao:       repositoryDao,
 		cacheJobDao:         cacheJobDao,
 	}
-	go s.resumeInventoryReconciles()
 	return s
 }
 
@@ -214,7 +213,7 @@ func (s *SchedulerService) SchedulerFile(ctx context.Context, req *pb.SchedulerF
 	if req.InstanceId == "" || req.Etag == "" {
 		return nil, fmt.Errorf("instance and etag are required")
 	}
-	if err := repository.ValidatePath(req.Name, true); err != nil {
+	if err := key.FilePath(req.Name); err != nil {
 		return nil, err
 	}
 	schedulerFilePath := key.LockKey("scheduler", req.Name, req.Etag)
@@ -354,7 +353,7 @@ func (s *SchedulerService) SingleFileProcess(ctx context.Context, processEntry *
 	if processEntry.InstanceId == "" || processEntry.Etag == "" {
 		return nil, fmt.Errorf("instance and etag are required")
 	}
-	if err := repository.ValidatePath(processEntry.Name, true); err != nil {
+	if err := key.FilePath(processEntry.Name); err != nil {
 		return nil, err
 	}
 	lock := s.getApiLock(key.LockKey("scheduler", processEntry.Name, processEntry.Etag))

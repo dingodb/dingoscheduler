@@ -127,7 +127,7 @@ func (k Key) OperationURI(operation, revision, path string) (string, error) {
 		return "", err
 	}
 	if path != "" {
-		if err := ValidatePath(path, true); err != nil {
+		if err := k.FilePath(path); err != nil {
 			return "", err
 		}
 	}
